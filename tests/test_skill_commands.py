@@ -23,14 +23,17 @@ INPUT_PLACEHOLDER = "<file JSON input>"
 ON_CI = os.environ.get("CI") == "true"
 WINDOWS = os.name == "nt"
 # On CI the shells that carry this OS's block must exist, so the tests below cannot all skip.
-REQUIRED = {"bash", "pwsh"} if WINDOWS else {"bash"}
+REQUIRED = {"bash", "powershell", "pwsh"} if WINDOWS else {"bash"}
 PS_QUOTES = "'‘’‚‛"
 # Windows forbids " < > : | ? * in names, so the Windows payloads avoid them; POSIX may carry a double quote.
 COMMON_NAME = "a b$x%PATH%!x!&^;() é"
 PAYLOADS = {
     "bash": "x'; touch INJ_SH; '$(touch INJ_SUB)",
-    "powershell": "x’; New-Item INJ_PS; ’" + "x&md INJ_CMD&",
+    "powershell": "x’; New-Item INJ_PS; ’" + "x'; New-Item INJ_PS2; '" + "x&md INJ_CMD&",
 }
+if not WINDOWS:  # a double quote is legal in a POSIX name only
+    PAYLOADS["bash"] += '"; touch INJ_DQ; "'
+NO_DEFAULT_CWD = "NODEFAULTCURRENTDIRECTORYINEXEPATH"
 MARKERS = ("SHADOWED", "HIJACKED", "INJ_*")
 
 
@@ -86,11 +89,12 @@ def shell_or_skip(shell: str) -> str:
     pytest.skip(f"no {shell} on this machine")
 
 
-def child_env() -> dict:
-    env = dict(os.environ)
+def child_env(pythonpath: Path | None = None) -> dict:
+    """Environment of the child shell: no inherited guard variable (any letter case), optional PYTHONPATH trap."""
+    env = {k: v for k, v in os.environ.items() if k.upper() not in ("PYTHONPATH", NO_DEFAULT_CWD)}
     env["PATH"] = os.path.dirname(sys.executable) + os.pathsep + env.get("PATH", "")
-    for name in ("PYTHONPATH", "NoDefaultCurrentDirectoryInExePath"):
-        env.pop(name, None)
+    if pythonpath is not None:
+        env["PYTHONPATH"] = str(pythonpath)
     return env
 
 
@@ -114,6 +118,8 @@ def decoy_workdir(base: Path) -> Path:
     package.mkdir(parents=True)
     (package / "__init__.py").write_text("open('SHADOWED', 'w').close()\n", encoding="utf-8")
     (package / "cli.py").write_text("def main(argv=None):\n    return 0\n", encoding="utf-8")
+    # Imported by any interpreter that honours PYTHONPATH (one started without -I).
+    (work / "sitecustomize.py").write_text("open('SHADOWED', 'w').close()\n", encoding="utf-8")
     for name in ("python.bat", "python.cmd"):
         (work / name).write_bytes(b"@echo off\r\ncopy nul HIJACKED >nul\r\n")
     return work
@@ -125,9 +131,10 @@ def run_script(shell: str, script: str, work: Path) -> subprocess.CompletedProce
         argv = [exe, "-c", script]
     else:
         file = work.parent / "run.ps1"  # outside the working directory so it never counts as a stray file
-        file.write_text(script, encoding="utf-8-sig")
+        # the block leaves the CLI exit code in $LASTEXITCODE only; -File would report 0 without this line
+        file.write_text(script + "\nexit $LASTEXITCODE\n", encoding="utf-8-sig")
         argv = [exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(file)]
-    return subprocess.run(argv, cwd=work, env=child_env(), capture_output=True, timeout=120)
+    return subprocess.run(argv, cwd=work, env=child_env(pythonpath=work), capture_output=True, timeout=120)
 
 
 def stdout_bytes(shell: str, done: subprocess.CompletedProcess) -> bytes:
@@ -206,6 +213,26 @@ def test_powershell_save_to_file_keeps_bytes(shell, tmp_path):
     assert data == GOLDEN_TEXT
     assert not data.startswith((b"\xef\xbb\xbf", b"\xff\xfe"))
     assert_no_markers(tmp_path)
+
+
+@pytest.mark.parametrize("shell", ALL_SHELLS)
+def test_skill_block_rejects_bad_input_with_exit_two(shell, tmp_path):
+    shell_or_skip(shell)
+    plugin, input_file, work = setup_case(shell, tmp_path)
+    input_file.write_text("{}", encoding="utf-8")
+    script = fill(SHELLS[shell][0], plugin / "skills" / "chief-of-staff", input_file)
+    done = run_script(shell, script, work)
+    assert done.returncode == 2, f"exit {done.returncode}: {done.stderr[-400:]!r}"
+    assert b"invalid_input" in done.stderr
+    assert stdout_bytes(shell, done) == b""
+    assert_no_markers(tmp_path)
+
+
+def test_child_env_drops_the_guard_variable_in_any_letter_case(monkeypatch):
+    monkeypatch.setenv("NoDefaultCurrentDirectoryInExePath", "1")
+    monkeypatch.setenv("nodefaultcurrentdirectoryinexepath", "1")
+    monkeypatch.setenv("PythonPath", "x")
+    assert not [k for k in child_env() if k.upper() in (NO_DEFAULT_CWD, "PYTHONPATH")]
 
 
 def test_launcher_missing_src_exits_one(tmp_path):

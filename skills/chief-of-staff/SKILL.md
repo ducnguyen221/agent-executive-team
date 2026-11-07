@@ -53,6 +53,8 @@ PowerShell không có `<` và ống PowerShell (`Get-Content ... | python ...`) 
 
 Hợp đồng input/output đầy đủ (khóa, giới hạn, cảnh báo) nằm ở mục "Hợp đồng input" và "Hợp đồng output" của README.
 
+Mã thoát bên dưới là của CLI; trên PowerShell nó nằm ở `$LASTEXITCODE`, không phải mã thoát của chính lệnh `powershell`.
+
 Mã thoát:
 
 - exit 0: bản đọc văn bản (hoặc memo JSON một dòng nếu bỏ `--format text`) trên stdout.
