@@ -21,18 +21,18 @@ INTERNAL_STDERR = b"internal_error\n"
 LIMIT = 65536
 
 
-def run_main(data):
+def run_main(data, argv=None):
     """Run ``cli.main`` in-process on ``data``; return (exit code, stdout bytes, stderr bytes)."""
     stdin, stdout, stderr = io.BytesIO(data), io.BytesIO(), io.BytesIO()
-    code = cli.main(stdin, stdout, stderr)
+    code = cli.main(stdin, stdout, stderr, argv=argv)
     return code, stdout.getvalue(), stderr.getvalue()
 
 
-def run_cli(data):
+def run_cli(data, *args):
     """Run the real ``python -B -m agent_executive_team`` from the repo root."""
     env = {**os.environ, "PYTHONPATH": "src"}
     return subprocess.run(
-        [sys.executable, "-B", "-m", "agent_executive_team"],
+        [sys.executable, "-B", "-m", "agent_executive_team", *args],
         input=data,
         capture_output=True,
         cwd=ROOT,
@@ -631,3 +631,94 @@ def test_main_without_argv_ignores_sys_argv(monkeypatch):
     stdout = io.BytesIO()
     assert cli.main(io.BytesIO(FIXTURE.read_bytes()), stdout, io.BytesIO()) == 0
     assert stdout.getvalue().startswith(b"{")
+
+
+# --- --format ------------------------------------------------------------------------------------
+
+FIXTURE_TEXT = ROOT / "tests" / "fixtures" / "valid.text"
+INVALID_ARGUMENTS_STDERR = b"invalid_arguments\n"
+
+
+def test_invalid_arguments_constant():
+    assert cli.INVALID_ARGUMENTS == INVALID_ARGUMENTS_STDERR
+
+
+def test_format_text_exit_zero():
+    code, out, err = run_main(FIXTURE.read_bytes(), ["--format", "text"])
+
+    assert (code, err) == (0, b"")
+    assert out == FIXTURE_TEXT.read_bytes()
+
+
+def test_default_and_format_json_byte_identical():
+    data = FIXTURE.read_bytes()
+
+    default = run_main(data)
+    explicit = run_main(data, ["--format", "json"])
+
+    assert default == explicit
+    assert default[0] == 0
+    assert default[1] == serialize(build_memo(json.loads(data)))
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--format"],
+        ["--format", "xml"],
+        ["--format=text"],
+        ["--FORMAT", "text"],
+        ["-f", "text"],
+        [""],
+        ["--format", "text", "--format", "json"],
+        ["x"],
+    ],
+    ids=repr,
+)
+def test_bad_arguments(argv):
+    stdin, stdout, stderr = FakeStdin(FIXTURE.read_bytes()), io.BytesIO(), io.BytesIO()
+
+    code = cli.main(stdin, stdout, stderr, argv=argv)
+
+    assert code == 2
+    assert stderr.getvalue() == INVALID_ARGUMENTS_STDERR
+    assert stdout.getvalue() == b""
+    assert stdin.calls == []
+
+
+def test_bad_arguments_with_bad_stderr_keep_exit_two():
+    class Broken:
+        def write(self, _data):
+            raise OSError
+
+        def flush(self):
+            raise OSError
+
+    stdin = FakeStdin(b"")
+
+    assert cli.main(stdin, io.BytesIO(), Broken(), argv=["x"]) == 2
+    assert stdin.calls == []
+
+
+def test_invalid_input_text_format():
+    code, out, err = run_main(b"not json", ["--format", "text"])
+
+    assert (code, out, err) == (2, b"", INVALID_STDERR)
+
+
+def test_text_replay_byte_identical():
+    data = FIXTURE.read_bytes()
+
+    first = run_cli(data, "--format", "text")
+    second = run_cli(data, "--format", "text")
+
+    assert first.returncode == second.returncode == 0
+    assert first.stdout == second.stdout == FIXTURE_TEXT.read_bytes()
+
+
+def test_subprocess_bad_arguments():
+    result = run_cli(FIXTURE.read_bytes(), "--format=text")
+
+    assert result.returncode == 2
+    assert result.stdout == b""
+    assert result.stderr == INVALID_ARGUMENTS_STDERR

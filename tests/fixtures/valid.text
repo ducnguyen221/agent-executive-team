@@ -1,0 +1,45 @@
+BẢN NHÁP MEMO QUYẾT ĐỊNH — CHỜ NGƯỜI CÓ THẨM QUYỀN QUYẾT ĐỊNH
+Trạng thái: chờ người quyết (needs_human_decision) · agent: cần người xem lại (needs_review) · quyết định: mới là đề nghị, chưa chốt (proposed)
+Bằng chứng: CHƯA XÁC MINH (unverified) — plugin không kiểm dữ liệu; chữ trong ngoặc kép là dữ liệu đầu vào, in nguyên
+
+Câu hỏi: "Should the synthetic team adopt the new planning cadence?"
+Người quyết định: "Synthetic Owner"
+Hạn quyết định: 2026-11-30
+Ngày xem lại: 2026-12-01
+Dữ liệu tính đến: 2026-11-07
+Ý kiến khác: "Synthetic dissent: the current cadence is already stable."
+
+Phương án (2 — theo thứ tự dữ liệu vào, không xếp hạng, không khuyến nghị):
+1. [GIỮ HIỆN TRẠNG] "Keep current cadence"
+   Được: "No change cost."
+   Mất: "Known planning delays remain."
+   Cách đảo ngược: "Nothing to reverse."
+   Việc cần làm: "Continue as is and re-check at the review date."
+2. "Adopt new cadence"
+   Được: "Shorter planning loop."
+   Mất: "Needs a one-time retraining."
+   Cách đảo ngược: "Return to the old cadence after one cycle."
+   Việc cần làm: "Run a one-cycle pilot with the synthetic team."
+
+Bằng chứng (2):
+1. [CHƯA XÁC MINH] [TRONG KỲ] "ev-001"
+   Loại: thực tế (actual)
+   Chủ: "Synthetic Analyst A"
+   Kỳ: "2026-11 first half"
+   Hiệu lực: 2026-11-01 đến 2026-11-15
+   Nhận định: "Planning took 9 days in the synthetic sample."
+   Nguồn (không truy cập): "synthetic://sample/planning-log"
+   Nhóm mâu thuẫn: không có
+2. [CHƯA XÁC MINH] [NGOÀI KỲ] "ev-002"
+   Loại: dự báo (forecast)
+   Chủ: "Synthetic Analyst B"
+   Kỳ: "2026-11 second half"
+   Hiệu lực: 2026-11-20 đến 2026-12-15
+   Nhận định: "A pilot may cut planning to 6 days."
+   Nguồn (không truy cập): "synthetic://sample/pilot-forecast"
+   Nhóm mâu thuẫn: không có
+
+Cảnh báo (1):
+- [NGOÀI KỲ] bằng chứng ngoài kỳ: "ev-002"
+
+Đây là bản nháp sinh máy móc từ dữ liệu đã cho, không phải lời khuyên AI đã nghiệm thu. Người có thẩm quyền tự quyết định.

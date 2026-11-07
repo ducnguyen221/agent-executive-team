@@ -1,6 +1,8 @@
 """Command line entry: one bounded read from stdin, one write to stdout, fixed exit codes.
 
-Exit 0: memo bytes on stdout. Exit 2: input rejected, stderr ``invalid_input``, stdout empty.
+Exit 0: memo bytes on stdout (JSON by default, plain text with ``--format text``). Exit 2: input
+rejected (stderr ``invalid_input``) or arguments rejected (stderr ``invalid_arguments``, checked
+before stdin is read), stdout empty.
 Exit 1: any other failure, stderr ``internal_error``. Stderr text is static and the payload is
 never echoed: neither the input nor any exception message from ``validate`` is printed.
 No file, network or process is touched; the streams are the only I/O. Only the standard streams
@@ -13,6 +15,7 @@ import os
 import sys
 
 from agent_executive_team.memo import build_memo, serialize
+from agent_executive_team.render import render_text
 from agent_executive_team.validation import MAX_BYTES, ValidationError, validate
 
 EXIT_OK = 0
@@ -21,8 +24,22 @@ EXIT_INVALID = 2
 
 INVALID_INPUT = b"invalid_input\n"
 INTERNAL_ERROR = b"internal_error\n"
+INVALID_ARGUMENTS = b"invalid_arguments\n"
 
 _STANDARD_FDS = (1, 2)
+
+
+class _BadArguments(Exception):
+    """Internal control flow only: the argument list is not one of the accepted forms."""
+
+
+def _parse_format(argv):
+    """Return ``"json"`` or ``"text"``; accepts only ``[]``, ``--format json``, ``--format text``."""
+    if argv == []:
+        return "json"
+    if len(argv) == 2 and argv[0] == "--format" and argv[1] in ("json", "text"):
+        return argv[1]
+    raise _BadArguments
 
 
 def _discard(stream):
@@ -65,13 +82,18 @@ def main(stdin=None, stdout=None, stderr=None, argv=None) -> int:
     stdin = _std_buffer("stdin") if stdin is None else stdin
     stdout = _std_buffer("stdout") if stdout is None else stdout
     stderr = _std_buffer("stderr") if stderr is None else stderr
-    argv = [] if argv is None else argv  # noqa: F841 - consumed from TK2 on
+    argv = [] if argv is None else argv
+    try:
+        output_format = _parse_format(argv)
+    except _BadArguments:
+        return _report(stderr, EXIT_INVALID, INVALID_ARGUMENTS)
     # Handlers only record the outcome; nothing is written inside them, so no exception from
     # the failed step (whose message may hold payload) can become the context of a later one.
     failure = None
     try:
         data = stdin.read(MAX_BYTES + 1)  # one bounded read; validate rejects anything over the cap
-        output = serialize(build_memo(validate(data)))
+        memo = build_memo(validate(data))
+        output = render_text(memo) if output_format == "text" else serialize(memo)
     except ValidationError:
         failure = (EXIT_INVALID, INVALID_INPUT)
     except Exception:  # noqa: BLE001 - the message may hold payload, so report a static code only
