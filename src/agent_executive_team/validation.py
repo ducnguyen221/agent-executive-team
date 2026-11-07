@@ -1,7 +1,8 @@
 """Strict input-contract validation: bytes in, parsed dict out, one stable error otherwise.
 
-Every failure (bad size, encoding, JSON, shape, value, scope) is reported as ``ValidationError``
-with the fixed code ``invalid_input``. The error never carries or chains any part of the payload.
+Every input-caused failure (bad size, encoding, JSON, shape, value, scope, nesting depth) is
+reported as ``ValidationError`` with the fixed code ``invalid_input``; the error never carries or
+chains any part of the payload. A bug in this module is not converted: it propagates unchanged.
 Input text is opaque data: nothing here follows, fetches or interprets it.
 """
 
