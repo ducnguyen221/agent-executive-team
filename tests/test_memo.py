@@ -374,3 +374,10 @@ def test_conflict_group_with_same_trailing_space_still_conflicts(valid_payload):
     valid_payload["evidence"][0]["conflict_group"] = "g "
     valid_payload["evidence"][1]["conflict_group"] = "g "
     assert _warnings(build_memo(valid_payload))["conflict"] == ["ev-001", "ev-002"]
+
+
+def test_parse_date_single_source():
+    from agent_executive_team import memo, validation
+
+    assert not hasattr(memo, "_parse_date")
+    assert memo.parse_date is validation.parse_date

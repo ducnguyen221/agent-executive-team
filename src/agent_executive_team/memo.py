@@ -8,7 +8,8 @@ its argument already passed ``validation.validate`` and does not re-check the co
 import copy
 import json
 from collections import Counter
-from datetime import date
+
+from agent_executive_team.validation import parse_date
 
 MEMO_VERSION = 1
 STATUS = "needs_human_decision"
@@ -20,13 +21,9 @@ IN_PERIOD = "in_period"
 OUT_OF_PERIOD = "out_of_period"
 
 
-def _parse_date(value):
-    return date(int(value[0:4]), int(value[5:7]), int(value[8:10]))
-
-
 def _label_evidence(item, as_of):
     labelled = copy.deepcopy(item)
-    in_period = _parse_date(item["effective_from"]) <= as_of <= _parse_date(item["effective_to"])
+    in_period = parse_date(item["effective_from"]) <= as_of <= parse_date(item["effective_to"])
     labelled["verification"] = VERIFICATION
     labelled["period_status"] = IN_PERIOD if in_period else OUT_OF_PERIOD
     return labelled
@@ -52,7 +49,7 @@ def _warnings(evidence):
 
 def build_memo(data: dict) -> dict:
     """Return the memo for a validated payload; ``data`` is not modified."""
-    as_of = _parse_date(data["decision"]["as_of"])
+    as_of = parse_date(data["decision"]["as_of"])
     evidence = [_label_evidence(item, as_of) for item in data["evidence"]]
     return {
         "version": MEMO_VERSION,

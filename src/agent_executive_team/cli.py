@@ -3,9 +3,10 @@
 Exit 0: memo bytes on stdout. Exit 2: input rejected, stderr ``invalid_input``, stdout empty.
 Exit 1: any other failure, stderr ``internal_error``. Stderr text is static and the payload is
 never echoed: neither the input nor any exception message from ``validate`` is printed.
-No file, network or process is touched; the streams are the only I/O. A stream that fails is
-pointed at the null device so its unflushed buffer cannot fail again at interpreter exit and
-change the exit code.
+No file, network or process is touched; the streams are the only I/O. Only the standard streams
+carry data; on a failed write the process's own stdout/stderr descriptor (fd 1 or 2) is pointed at
+the null device so its unflushed buffer cannot fail again at interpreter exit and change the exit
+code. Streams handed in by an embedding caller are never redirected.
 """
 
 import os
@@ -21,11 +22,15 @@ EXIT_INVALID = 2
 INVALID_INPUT = b"invalid_input\n"
 INTERNAL_ERROR = b"internal_error\n"
 
+_STANDARD_FDS = (1, 2)
+
 
 def _discard(stream):
-    """Send a failed stream's descriptor to the null device (stream without one: nothing to do)."""
+    """Point a failed stream's descriptor at the null device, only when it is fd 1 or 2."""
     try:
         descriptor = stream.fileno()
+        if descriptor not in _STANDARD_FDS:
+            return
         null = os.open(os.devnull, os.O_WRONLY)
         try:
             os.dup2(null, descriptor)
@@ -45,11 +50,22 @@ def _report(stderr, exit_code, message):
     return exit_code
 
 
-def main(stdin=None, stdout=None, stderr=None) -> int:
-    """Run the pipeline over binary streams (default: the process's standard buffers)."""
-    stdin = sys.stdin.buffer if stdin is None else stdin
-    stdout = sys.stdout.buffer if stdout is None else stdout
-    stderr = sys.stderr.buffer if stderr is None else stderr
+def _std_buffer(name):
+    """The binary buffer of ``sys.<name>``, or None when that standard stream is closed."""
+    stream = getattr(sys, name)
+    return None if stream is None else stream.buffer
+
+
+def main(stdin=None, stdout=None, stderr=None, argv=None) -> int:
+    """Run the pipeline over binary streams (default: the process's standard buffers).
+
+    ``argv`` is the argument list without the program name; ``None`` means no arguments and
+    ``sys.argv`` is never read here.
+    """
+    stdin = _std_buffer("stdin") if stdin is None else stdin
+    stdout = _std_buffer("stdout") if stdout is None else stdout
+    stderr = _std_buffer("stderr") if stderr is None else stderr
+    argv = [] if argv is None else argv  # noqa: F841 - consumed from TK2 on
     # Handlers only record the outcome; nothing is written inside them, so no exception from
     # the failed step (whose message may hold payload) can become the context of a later one.
     failure = None

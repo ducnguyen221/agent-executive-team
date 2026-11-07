@@ -88,9 +88,14 @@ def _text(value, allow_empty=False):
     _require(value.strip() != "")  # also rejects "" (minimum length 1)
 
 
+def parse_date(value):
+    """Return the ``date`` of a ``YYYY-MM-DD`` string; ValueError if it is not a real day."""
+    return date(int(value[0:4]), int(value[5:7]), int(value[8:10]))
+
+
 def _date(value):
     _require(isinstance(value, str) and _DATE_RE.fullmatch(value) is not None)
-    return date(int(value[0:4]), int(value[5:7]), int(value[8:10]))  # ValueError if not a real day
+    return parse_date(value)
 
 
 def _check_decision(decision):

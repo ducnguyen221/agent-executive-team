@@ -527,3 +527,107 @@ def test_rejected_run_has_no_side_effect_event(valid_payload):
     assert report["events"] == []
     assert report["stdout"] == ""
     assert report["stderr"] == INVALID_STDERR.decode("ascii")
+
+
+# --- TK1: closed standard streams, narrow _discard, argv ignored by embedded main -------------
+
+_NONE_STREAM_CODE = (
+    "import sys; sys.{name} = None; import runpy; "
+    "runpy.run_module('agent_executive_team', run_name='__main__')"
+)
+_STATIC_STDERR = (b"", INVALID_STDERR, INTERNAL_STDERR)
+
+
+def _run_with_none_stream(name, data):
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    return subprocess.run(
+        [sys.executable, "-B", "-c", _NONE_STREAM_CODE.format(name=name)],
+        input=data,
+        capture_output=True,
+        cwd=ROOT,
+        env=env,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize("name", ["stdin", "stdout", "stderr"])
+@pytest.mark.parametrize("valid", [True, False])
+def test_closed_std_stream_no_traceback(name, valid):
+    data = FIXTURE.read_bytes() if valid else b"not json"
+    result = _run_with_none_stream(name, data)
+    if name == "stdin":
+        expected = 1
+    elif name == "stdout":
+        expected = 1 if valid else 2
+    else:
+        expected = 0 if valid else 2
+    if name == "stdout" and valid:
+        expected = 1
+    assert result.returncode == expected
+    assert result.stderr in _STATIC_STDERR
+    assert b"Traceback" not in result.stderr
+
+
+def test_all_three_streams_none_exit_one_silently():
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    code = (
+        "import sys; sys.stdin = sys.stdout = sys.stderr = None; import runpy; "
+        "runpy.run_module('agent_executive_team', run_name='__main__')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", code], capture_output=True, cwd=ROOT, env=env, check=False
+    )
+    assert result.returncode == 1
+    assert result.stderr == b"" and result.stdout == b""
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell descriptor closing")
+@pytest.mark.parametrize("redir", ["<&-", ">&-", "2>&-"])
+@pytest.mark.parametrize("valid", [True, False])
+def test_posix_shell_closed_descriptor_no_traceback(redir, valid):
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    source = str(FIXTURE) if valid else "/dev/null"
+    if redir == "<&-":
+        cmd = f'"{sys.executable}" -B -m agent_executive_team <&- 2>&1'
+    elif redir == ">&-":
+        cmd = f'"{sys.executable}" -B -m agent_executive_team < {source} 2>&1 >&-'
+    else:
+        cmd = f'"{sys.executable}" -B -m agent_executive_team < {source} 2>&- >/dev/null'
+    result = subprocess.run(["/bin/sh", "-c", cmd], capture_output=True, cwd=ROOT, env=env, check=False)
+    assert b"Traceback" not in result.stdout + result.stderr
+    assert result.returncode in (0, 1, 2)
+    if redir == "2>&-" and valid:
+        assert result.returncode == 0
+
+
+def test_discard_leaves_foreign_descriptor():
+    r, w = os.pipe()
+
+    class Broken:
+        def fileno(self):
+            return w
+
+        def write(self, _data):
+            raise OSError("broken")
+
+        def flush(self):
+            pass
+
+    try:
+        assert cli.main(io.BytesIO(FIXTURE.read_bytes()), Broken(), io.BytesIO()) == 1
+        os.write(w, b"MARK")
+        os.close(w)
+        assert os.read(r, 16) == b"MARK"
+    finally:
+        os.close(r)
+
+
+def test_standard_fds_constant():
+    assert cli._STANDARD_FDS == (1, 2)
+
+
+def test_main_without_argv_ignores_sys_argv(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["x", "--format", "bogus"])
+    stdout = io.BytesIO()
+    assert cli.main(io.BytesIO(FIXTURE.read_bytes()), stdout, io.BytesIO()) == 0
+    assert stdout.getvalue().startswith(b"{")
