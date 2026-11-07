@@ -140,9 +140,9 @@ def test_gemini_is_a_prose_pointer_not_an_import():
     assert not any(line.strip().startswith("@") for line in gemini.splitlines())
 
 
-def test_excluded_files_are_absent():
-    for name in ("ECOSYSTEM.md", "docs/CONTRACT.md"):
-        assert not (ROOT / name).exists()
+def test_ecosystem_and_contract_are_present():
+    for name in ("ECOSYSTEM.md", "docs/CONTRACT.md", "CHANGELOG.md"):
+        assert (ROOT / name).is_file()
 
 
 def test_license_is_mit():

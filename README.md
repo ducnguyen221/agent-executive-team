@@ -14,6 +14,8 @@ Plugin trợ lý điều hành, lát ngoại tuyến đầu tiên: một lệnh 
 
 Cần Python 3.11 trở lên (CI đo 3.11 đến 3.13), chỉ dùng thư viện chuẩn. Lệnh chạy script khởi chạy nằm trong thư mục skill (`skills/chief-of-staff/scripts/executive_memo.py`), từ nơi plugin được cài; script tự tìm gốc plugin, không cần `PYTHONPATH`, không phụ thuộc thư mục hiện hành. `<thư mục skill>` là thư mục chứa `SKILL.md` (từ gốc repo: `skills/chief-of-staff`), `<file JSON input>` là file input (mẫu hợp lệ: `tests/fixtures/valid.json`). Mặc định in JSON một dòng; `--format text` in bản đọc cho người.
 
+Hợp đồng gọi đầy đủ (đối số, mã thoát, stderr, phiên bản hợp đồng) ở [docs/CONTRACT.md](docs/CONTRACT.md); vai trong hệ sinh thái ở [ECOSYSTEM.md](ECOSYSTEM.md); thay đổi theo bản ở [CHANGELOG.md](CHANGELOG.md).
+
 Bash (Linux, macOS, Git Bash); đường có nháy đơn thì viết `'\''` thay cho nó:
 
 ```bash
@@ -75,6 +77,7 @@ Một dòng JSON (khóa sắp xếp, ASCII, kết bằng đúng một LF) gồm:
 
 - exit 0: memo trên stdout.
 - exit 2: input không hợp lệ; stderr là `invalid_input`, stdout rỗng, không in lại nội dung input.
+- exit 2 với stderr `invalid_arguments`: đối số sai (chỉ nhận `--format json` hoặc `--format text`), stdout rỗng, stdin chưa đọc.
 - exit 1: lỗi nội bộ hoặc I/O; stderr là `internal_error`, không in lại nội dung input.
 
 ## Giấy phép
