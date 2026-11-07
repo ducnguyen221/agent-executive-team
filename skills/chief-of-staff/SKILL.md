@@ -19,6 +19,8 @@ Cần Python 3.11 trở lên (chỉ thư viện chuẩn). Lệnh chạy từ nơ
 
 **Tìm thư mục skill:** là đường thư mục chứa `SKILL.md` này mà harness báo khi nạp skill. Không tự đoán, không dựa vào thư mục hiện hành. Input là một file JSON (mẫu hợp lệ: `tests/fixtures/valid.json` ở gốc plugin); lệnh đọc file đó qua stdin, không qua ống của shell.
 
+Chép **nguyên khối** phù hợp với shell, chỉ thay hai giá trị trong nháy đơn; không rút gọn, không bỏ nháy, không bỏ hay đổi các dòng đặt biến — chúng chặn đường có ký tự lạ và `python` giả ở thư mục hiện hành. Không tự viết lệnh `cmd` hay `python` khác.
+
 Bash (Linux, macOS, Git Bash). Thay hai chỗ trong nháy đơn bằng đường thật; nếu đường có nháy đơn thì viết `'\''` thay cho nó:
 
 ```bash
@@ -59,7 +61,7 @@ Mã thoát:
 
 - exit 0: bản đọc văn bản (hoặc memo JSON một dòng nếu bỏ `--format text`) trên stdout.
 - exit 2: input bị từ chối, stderr là `invalid_input`, stdout rỗng. stderr là mã tĩnh, không nói sai ở đâu: tự đối chiếu input với hợp đồng trong README (kích thước, không BOM, đủ bốn khóa cấp trên cùng, số phương án và bằng chứng, độ dài văn bản, ngày hợp lệ, đúng một `status_quo`, tenant `synthetic-demo`, `id` không trùng), sửa rồi chạy lại; không đoán và không nới giới hạn.
-- exit 2 với stderr `invalid_arguments`: đối số lệnh sai (chỉ nhận `--format text`); sửa lệnh, không sửa input.
+- exit 2 với stderr `invalid_arguments`: đối số lệnh sai (chỉ nhận không đối số, `--format json` hoặc `--format text`); sửa lệnh, không sửa input.
 - exit 1: lỗi nội bộ, I/O hoặc không thấy mã plugin cạnh skill (cài thiếu `src/`), stderr là `internal_error`, không in lại input.
 - exit 1 kèm thông báo của shell (không thấy file input, không thấy `python`): lệnh chưa chạm CLI; kiểm đường file và `python` trên `PATH`.
 - exit 9009 hoặc thông báo "Python was not found" (Windows): đó là bản `python` giả của Microsoft Store (`WindowsApps`); cài Python 3.11+ hoặc tắt App execution alias, rồi chạy lại.

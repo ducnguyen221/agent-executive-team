@@ -16,6 +16,10 @@ if not (ROOT / "src" / "agent_executive_team").is_dir():
 
 sys.path.insert(0, str(ROOT / "src"))
 
-from agent_executive_team.cli import main  # noqa: E402
+try:
+    from agent_executive_team.cli import main  # noqa: E402
+except Exception:  # a broken install (missing module) must not print a traceback
+    sys.stderr.buffer.write(b"internal_error\n")
+    raise SystemExit(1)
 
 raise SystemExit(main(argv=sys.argv[1:]))

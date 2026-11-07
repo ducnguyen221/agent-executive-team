@@ -30,7 +30,8 @@ _HEADER = (
     "Trạng thái: chờ người quyết (needs_human_decision) · agent: cần người xem lại "
     "(needs_review) · quyết định: mới là đề nghị, chưa chốt (proposed)",
     "Bằng chứng: CHƯA XÁC MINH (unverified) — plugin không kiểm dữ liệu; "
-    "chữ trong ngoặc kép là dữ liệu đầu vào, in nguyên",
+    "chữ trong ngoặc kép là dữ liệu đầu vào, in nguyên trừ ký tự điều khiển và vô hình "
+    "được viết dạng \\uXXXX",
 )
 _FOOTER = (
     "Đây là bản nháp sinh máy móc từ dữ liệu đã cho, không phải lời khuyên AI đã nghiệm thu. "
@@ -92,7 +93,7 @@ def _option_lines(options):
         lines.append("   Được: " + quote(option["pros"]))
         lines.append("   Mất: " + quote(option["cons"]))
         lines.append("   Cách đảo ngược: " + quote(option["reversal"]))
-        lines.append("   Việc cần làm: " + quote(option["actions"]))
+        lines.append("   Việc cần làm nếu chọn: " + quote(option["actions"]))
     return lines
 
 
@@ -109,7 +110,7 @@ def _evidence_lines(evidence):
         lines.append("   Kỳ: " + quote(item["period"]))
         lines.append("   Hiệu lực: %s đến %s" % (item["effective_from"], item["effective_to"]))
         lines.append("   Nhận định: " + quote(item["claim"]))
-        lines.append("   Nguồn (không truy cập): " + quote(item["source_uri"]))
+        lines.append("   Nguồn (plugin không mở): " + quote(item["source_uri"]))
         lines.append("   Nhóm mâu thuẫn: " + group)
     return lines
 

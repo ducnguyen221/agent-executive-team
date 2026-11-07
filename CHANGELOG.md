@@ -8,6 +8,8 @@ SPR-02 (hợp đồng gọi `1.1.0`):
 - Thêm mã `invalid_arguments` (exit 2): đối số sai bị từ chối trước khi đọc stdin.
 - CLI bền khi luồng chuẩn đóng hoặc ghi hỏng; một hàm duy nhất đọc ngày.
 - Script khởi chạy nằm trong skill (`skills/chief-of-staff/scripts/executive_memo.py`), chạy được từ nơi cài trên bash và PowerShell.
+- Nhãn bản đọc rõ nghĩa hơn: `Nguồn (plugin không mở):`, `Việc cần làm nếu chọn:`; dòng 3 nói rõ ký tự điều khiển và vô hình được viết dạng `\uXXXX`.
+- Script khởi chạy: bản cài hỏng (thiếu module) in đúng `internal_error`, exit 1, không traceback.
 - Thêm `docs/CONTRACT.md`, `ECOSYSTEM.md`, `CHANGELOG.md`.
 - CI GitHub Actions: Ubuntu, macOS, Windows × Python 3.11 đến 3.13, công cụ test cài từ file khóa có hash.
 - Thêm `.claude-plugin/marketplace.json`; `CLAUDE.md` ở gốc chuyển thành `.claude/CLAUDE.md` (import `@../AGENTS.md`) để `claude plugin validate --strict` đạt.

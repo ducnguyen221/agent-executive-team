@@ -9,6 +9,7 @@ htmlcov/
 docs/plans/
 docs/evidence/
 .agile.json
+.claude/settings.local.json
 output/
 .env
 .env.*

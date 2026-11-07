@@ -746,3 +746,27 @@ def test_subprocess_bad_arguments():
     assert result.returncode == 2
     assert result.stdout == b""
     assert result.stderr == INVALID_ARGUMENTS_STDERR
+
+
+# --- launcher with a broken install --------------------------------------------------------------
+
+
+def test_launcher_with_a_module_missing_prints_only_internal_error(tmp_path):
+    plugin = tmp_path / "plugin"
+    (plugin / "skills").mkdir(parents=True)
+    import shutil
+
+    shutil.copytree(ROOT / "skills" / "chief-of-staff", plugin / "skills" / "chief-of-staff")
+    shutil.copytree(
+        ROOT / "src", plugin / "src", ignore=shutil.ignore_patterns("__pycache__", "render.py")
+    )
+    script = plugin / "skills" / "chief-of-staff" / "scripts" / "executive_memo.py"
+
+    result = subprocess.run(
+        [sys.executable, "-B", "-I", str(script)],
+        input=FIXTURE.read_bytes(),
+        capture_output=True,
+        cwd=tmp_path,
+    )
+
+    assert (result.returncode, result.stdout, result.stderr) == (1, b"", b"internal_error\n")
