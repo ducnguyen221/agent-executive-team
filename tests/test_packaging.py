@@ -155,7 +155,7 @@ def test_shipped_files_have_no_private_or_source_references():
     files = _shipped_files()
     assert files, "expected shipped files to scan"
     for path in files:
-        if path.suffix in {".json", ".md", ".py", ".txt", ".ini", ".gitignore", ""} or path.name.startswith("."):
+        if path.suffix in {".json", ".md", ".py", ".txt", ".ini", ".yml", ".in", ".gitignore", ""} or path.name.startswith("."):
             text = path.read_text(encoding="utf-8", errors="replace")
             for needle in FORBIDDEN:
                 assert needle not in text, f"{needle!r} found in {path.relative_to(ROOT)}"
