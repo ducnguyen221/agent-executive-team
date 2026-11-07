@@ -11,6 +11,7 @@ Skill này chạy một lệnh ngoại tuyến để biến dữ liệu tổng h
 
 - Có một câu hỏi quyết định, từ 2 đến 4 phương án (đúng một phương án là giữ nguyên hiện trạng) và tối đa 20 bằng chứng.
 - Chỉ dữ liệu tổng hợp: mọi bằng chứng phải có tenant `synthetic-demo`. Không dùng dữ liệu thật, không xác thực dữ liệu thật.
+- Cấm gắn nhãn `synthetic-demo` cho dữ liệu thật để qua kiểm. Tenant chỉ là nhãn của dữ liệu mẫu, không phải phân quyền hay bằng chứng dữ liệu đã được kiểm.
 
 ## Cách chạy
 
@@ -20,13 +21,15 @@ Từ gốc repo, đưa JSON vào stdin (mẫu hợp lệ: `tests/fixtures/valid.
 PYTHONPATH=src python -B -m agent_executive_team < tests/fixtures/valid.json
 ```
 
-Trên PowerShell đặt `$env:PYTHONPATH = "src"` rồi chuyển file vào stdin bằng `Get-Content -Raw ... | python -B -m agent_executive_team`.
+Trên PowerShell (Windows): đặt `$env:PYTHONPATH = "src"` rồi chạy `cmd /c "python -B -m agent_executive_team < tests\fixtures\valid.json"`. Không pipe chuỗi hay `Get-Content` của PowerShell vào lệnh: PowerShell 5.1 chèn BOM vào stdin nên CLI trả exit 2 `invalid_input` dù input hợp lệ.
+
+Hợp đồng input/output đầy đủ (khóa, giới hạn, cảnh báo) nằm ở mục "Hợp đồng input" và "Hợp đồng output" của README.
 
 Mã thoát:
 
 - exit 0: memo JSON một dòng trên stdout.
-- exit 2: input bị từ chối, stderr là `invalid_input`, stdout rỗng.
-- exit 1: lỗi nội bộ hoặc I/O, stderr là `internal_error`.
+- exit 2: input bị từ chối, stderr là `invalid_input`, stdout rỗng. stderr là mã tĩnh, không nói sai ở đâu: tự đối chiếu input với hợp đồng trong README (kích thước, không BOM, đủ bốn khóa cấp trên cùng, số phương án và bằng chứng, độ dài văn bản, ngày hợp lệ, đúng một `status_quo`, tenant `synthetic-demo`, `id` không trùng), sửa rồi chạy lại; không đoán và không nới giới hạn.
+- exit 1: lỗi nội bộ hoặc I/O, stderr là `internal_error`, không in lại input.
 
 ## Cách hiểu kết quả
 

@@ -18,7 +18,7 @@ Cần Python 3.12, chỉ dùng thư viện chuẩn. Từ gốc repo:
 PYTHONPATH=src python -B -m agent_executive_team < tests/fixtures/valid.json
 ```
 
-Trên PowerShell: đặt `$env:PYTHONPATH = "src"`, rồi `Get-Content -Raw tests/fixtures/valid.json | python -B -m agent_executive_team`.
+Trên PowerShell (Windows): đặt `$env:PYTHONPATH = "src"` rồi chạy `cmd /c "python -B -m agent_executive_team < tests\fixtures\valid.json"`. Không dùng ống PowerShell (`Get-Content ... | python ...` hay bất kỳ chuỗi PowerShell nào đưa vào lệnh): PowerShell 5.1 chèn dấu BOM (`EF BB BF`) vào đầu stdin, CLI từ chối BOM và trả exit 2 `invalid_input` dù input hợp lệ.
 
 Chạy test và đo độ phủ (cần `pytest`, `pytest-cov`; ngưỡng 80 %):
 
@@ -28,7 +28,7 @@ python -m pytest -q --cov=agent_executive_team --cov-report=term-missing --cov-f
 
 ## Hợp đồng input
 
-Một đối tượng JSON UTF-8 tối đa 65536 byte, không BOM, không khóa trùng, không khóa lạ. Ba khóa cấp trên cùng, thiếu hay thừa đều bị từ chối: `version`, `decision`, `options`, `evidence`.
+Một đối tượng JSON UTF-8 tối đa 65536 byte, không BOM, không khóa trùng, không khóa lạ. Bốn khóa cấp trên cùng, thiếu hay thừa đều bị từ chối: `version`, `decision`, `options`, `evidence`.
 
 | Khóa | Quy tắc |
 |---|---|
@@ -49,7 +49,7 @@ Một dòng JSON (khóa sắp xếp, ASCII, kết bằng đúng một LF) gồm:
 
 - exit 0: memo trên stdout.
 - exit 2: input không hợp lệ; stderr là `invalid_input`, stdout rỗng, không in lại nội dung input.
-- exit 1: lỗi nội bộ hoặc I/O; stderr là `internal_error`.
+- exit 1: lỗi nội bộ hoặc I/O; stderr là `internal_error`, không in lại nội dung input.
 
 ## Giấy phép
 

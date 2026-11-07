@@ -154,3 +154,71 @@ def test_shipped_files_have_no_private_or_source_references():
             for needle in FORBIDDEN:
                 assert needle not in text, f"{needle!r} found in {path.relative_to(ROOT)}"
     assert not list(ROOT.rglob("RESEARCH_ORIGINAL*"))
+
+
+# --- Step 4 fix round: README/skill numbers and commands must match the code ---
+
+BACKSLASH = chr(92)  # written this way so the file holds no ambiguous escape
+POWERSHELL_COMMAND = (
+    'cmd /c "python -B -m agent_executive_team < tests' + BACKSLASH + 'fixtures' + BACKSLASH + 'valid.json"'
+)
+
+
+def _readme():
+    return README.read_text(encoding="utf-8")
+
+
+def test_readme_numbers_match_validation_constants():
+    from agent_executive_team import validation as v
+
+    text = _readme()
+    words = {3: "Ba", 4: "Bốn"}
+    assert f"tối đa {v.MAX_BYTES} byte" in text
+    assert f"tối đa {v.MAX_TEXT} ký tự" in text
+    assert f"{v.MIN_OPTIONS} đến {v.MAX_OPTIONS} phương án" in text
+    assert f"0 đến {v.MAX_EVIDENCE} bằng chứng" in text
+    assert f"{words[len(v._TOP_KEYS)]} khóa cấp trên cùng" in text
+    assert "Ba khóa" not in text or len(v._TOP_KEYS) == 3
+
+
+def test_readme_names_every_contract_key():
+    from agent_executive_team import validation as v
+
+    text = _readme()
+    keys = v._TOP_KEYS | v._DECISION_KEYS | v._OPTION_KEYS | v._EVIDENCE_KEYS
+    for key in sorted(keys):
+        assert f"`{key}`" in text, key
+    for kind in sorted(v.ALLOWED_KINDS):
+        assert f"`{kind}`" in text, kind
+
+
+def test_skill_numbers_match_validation_constants():
+    from agent_executive_team import validation as v
+
+    _, body = _frontmatter_and_body(_skill_text())
+    assert f"từ {v.MIN_OPTIONS} đến {v.MAX_OPTIONS} phương án" in body
+    assert f"tối đa {v.MAX_EVIDENCE} bằng chứng" in body
+
+
+def test_powershell_command_avoids_the_bom_pipe():
+    for text in (_readme(), _skill_text()):
+        assert POWERSHELL_COMMAND in text
+        assert "BOM" in text
+        assert "Get-Content -Raw tests" not in text  # the old command that exits 2
+
+
+def test_skill_points_to_readme_contract_and_explains_exit_2():
+    _, body = _frontmatter_and_body(_skill_text())
+    assert "README" in body and "Hợp đồng input" in body and "Hợp đồng output" in body
+    assert "tự đối chiếu input" in body
+
+
+def test_skill_forbids_labelling_real_data_synthetic():
+    _, body = _frontmatter_and_body(_skill_text())
+    assert "Cấm gắn nhãn `synthetic-demo` cho dữ liệu thật" in body
+    assert "không phải phân quyền" in body
+
+
+def test_exit_1_says_input_is_not_echoed():
+    assert "`internal_error`, không in lại nội dung input" in _readme()
+    assert "`internal_error`, không in lại input" in _skill_text()
