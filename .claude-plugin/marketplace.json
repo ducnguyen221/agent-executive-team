@@ -1,0 +1,19 @@
+{
+  "name": "agent-executive-team",
+  "description": "Offline executive assistant slice: turns synthetic decision data into a deterministic draft decision memo that always waits for a human decision.",
+  "owner": {
+    "name": "Nguyễn Quang Đức"
+  },
+  "plugins": [
+    {
+      "name": "agent-executive-team",
+      "description": "Offline executive assistant slice: turns synthetic decision data into a deterministic draft decision memo that always waits for a human decision.",
+      "version": "0.1.0",
+      "source": "./",
+      "license": "MIT",
+      "author": {
+        "name": "Nguyễn Quang Đức"
+      }
+    }
+  ]
+}

@@ -123,8 +123,44 @@ def test_readme_warns_about_scope_and_license():
     assert "chưa phát hành" in text
 
 
-def test_claude_md_is_exactly_the_agents_import():
-    assert (ROOT / "CLAUDE.md").read_text(encoding="utf-8").strip() == "@AGENTS.md"
+def test_claude_md_lives_in_dot_claude_and_is_exactly_the_agents_import():
+    # A root CLAUDE.md makes `claude plugin validate --strict` fail; the import moved under .claude/.
+    assert not (ROOT / "CLAUDE.md").exists()
+    text = (ROOT / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
+    assert text.strip() == "@../AGENTS.md"
+    assert len(text.strip().splitlines()) == 1
+
+
+def test_marketplace_lists_exactly_this_plugin():
+    market = _load(ROOT / ".claude-plugin" / "marketplace.json")
+    claude, codex = _load(CLAUDE_MANIFEST), _load(CODEX_MANIFEST)
+    assert market["name"] == "agent-executive-team"
+    assert market["owner"] == {"name": "Nguyễn Quang Đức"}
+    assert market["description"] == claude["description"]
+    assert len(market["plugins"]) == 1
+    entry = market["plugins"][0]
+    assert entry["name"] == claude["name"] == codex["name"]
+    assert entry["version"] == claude["version"] == codex["version"]
+    assert entry["source"] == "./"
+    assert entry["description"] == claude["description"]
+    assert entry["license"] == "MIT"
+    assert entry["author"] == {"name": "Nguyễn Quang Đức"}
+
+
+def test_readme_has_install_section_for_three_hosts():
+    text = README.read_text(encoding="utf-8")
+    assert "## Cài" in text
+    for needle in (
+        "/plugin marketplace add",
+        "/plugin install agent-executive-team@agent-executive-team",
+        "codex plugin marketplace add",
+        "codex plugin add agent-executive-team@agent-executive-team",
+        "Antigravity",
+        "skills/chief-of-staff",
+        ".claude/CLAUDE.md",
+        "@../AGENTS.md",
+    ):
+        assert needle in text, needle
 
 
 def test_agents_and_gemini_exist_and_point_correctly():

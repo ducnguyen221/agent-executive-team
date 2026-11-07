@@ -54,6 +54,30 @@ Chạy test và đo độ phủ (cần `pytest`, `pytest-cov`; ngưỡng 80 %):
 python -m pytest -q --cov=agent_executive_team --cov-report=term-missing --cov-fail-under=80
 ```
 
+## Cài
+
+Repo chưa có remote; dùng bản checkout cục bộ, `<gốc repo>` là thư mục chứa `README.md` này (Windows PowerShell 5.1 không mở `~` cho chương trình ngoài; dùng đường tuyệt đối trong dấu nháy kép).
+
+**Claude Code** (terminal, IDE, tab Code của ứng dụng Claude). Trong phiên gõ `/plugin marketplace add <gốc repo>` rồi `/plugin install agent-executive-team@agent-executive-team`; hoặc từ shell:
+
+```bash
+claude plugin marketplace add <gốc repo>
+claude plugin install agent-executive-team@agent-executive-team
+```
+
+Thử khi đang sửa repo, không cài: `claude --plugin-dir <gốc repo>`. Skill hiện với tên `agent-executive-team:chief-of-staff`.
+
+**Codex.** Đóng ứng dụng Codex desktop trước khi cài, vì lệnh ghi cấu hình của Codex (lệnh `codex plugin` khác nhau theo phiên bản, xem `codex plugin --help`):
+
+```bash
+codex plugin marketplace add <gốc repo>
+codex plugin add agent-executive-team@agent-executive-team
+```
+
+**Antigravity.** Antigravity tự nạp `AGENTS.md` và `GEMINI.md` của workspace. Skill nạp bằng cách liên kết **một** thư mục `skills/chief-of-staff` vào thư mục skill toàn cục `~/.gemini/antigravity/skills/` (liên kết tên `chief-of-staff`: junction trên Windows, symlink trên macOS); không chép thư mục, vì skill còn tìm mã ở `src/` qua đường thật của liên kết. Tên đã có sẵn ở đích thì không ghi đè, hỏi người dùng.
+
+**Luật cho Claude Code.** Luật nằm ở `AGENTS.md`. Repo có `.claude/CLAUDE.md` chứa đúng một dòng `@../AGENTS.md` (đường tương đối tính từ file chứa dòng `@`), nên Claude Code đọc luật khi mở thư mục repo. Repo cố ý không có `CLAUDE.md` ở gốc, để `claude plugin validate --strict .` đạt; đừng tạo lại file đó. Skill của plugin chạy được mà không cần bước này.
+
 ## Hợp đồng input
 
 Một đối tượng JSON UTF-8 tối đa 65536 byte, không BOM, không khóa trùng, không khóa lạ. Bốn khóa cấp trên cùng, thiếu hay thừa đều bị từ chối: `version`, `decision`, `options`, `evidence`.
