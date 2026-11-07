@@ -1,6 +1,7 @@
 """Memo builder: fixed statuses, evidence labelling, period and warning rules, byte-stable output."""
 
 import copy
+import json
 
 from agent_executive_team.memo import build_memo, serialize
 
@@ -324,3 +325,52 @@ def test_serialize_handles_lone_surrogate(valid_payload):
     assert out.isascii()
     assert b"\\ud800" in out
     assert out.endswith(b"\n")
+
+
+def test_conflict_ids_follow_input_order_not_group_or_id_order(valid_payload):
+    template = valid_payload["evidence"][0]
+    valid_payload["evidence"] = []
+    for evidence_id, group in (("ev-009", "a"), ("ev-003", "b"), ("ev-005", "a"), ("ev-001", "b")):
+        valid_payload["evidence"].append(dict(template, id=evidence_id, conflict_group=group))
+    conflicts = [w for w in build_memo(valid_payload)["warnings"] if w["code"] == "conflict"]
+    assert conflicts == [
+        {"code": "conflict", "evidence_ids": ["ev-009", "ev-003", "ev-005", "ev-001"]}
+    ]
+
+
+def test_review_date_before_as_of_does_not_change_period_status(valid_payload):
+    valid_payload["decision"]["review_date"] = "2026-10-01"  # before as_of 2026-11-07
+    memo = build_memo(valid_payload)
+    assert [e["period_status"] for e in memo["evidence"]] == ["in_period", "out_of_period"]
+    assert memo["warnings"] == EXPECTED_MEMO["warnings"]
+
+
+def test_review_date_before_period_start_keeps_in_period_by_as_of(valid_payload):
+    valid_payload["decision"]["review_date"] = "2020-01-01"
+    valid_payload["decision"]["as_of"] = "2026-11-15"
+    assert _period_status(valid_payload) == "in_period"
+
+
+def test_serialize_ends_with_closing_brace_and_bare_lf(valid_payload):
+    out = serialize(build_memo(valid_payload))
+    assert out.endswith(b"}\n")
+    assert b"\r" not in out
+
+
+def test_serialize_matches_golden_bytes_of_expected_memo(valid_payload):
+    golden = json.dumps(
+        EXPECTED_MEMO, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8") + b"\n"
+    assert serialize(build_memo(valid_payload)) == golden
+
+
+def test_conflict_groups_differing_only_by_trailing_space_are_distinct(valid_payload):
+    valid_payload["evidence"][0]["conflict_group"] = "g"
+    valid_payload["evidence"][1]["conflict_group"] = "g "
+    assert "conflict" not in _warnings(build_memo(valid_payload))
+
+
+def test_conflict_group_with_same_trailing_space_still_conflicts(valid_payload):
+    valid_payload["evidence"][0]["conflict_group"] = "g "
+    valid_payload["evidence"][1]["conflict_group"] = "g "
+    assert _warnings(build_memo(valid_payload))["conflict"] == ["ev-001", "ev-002"]
