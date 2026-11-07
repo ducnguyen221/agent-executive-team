@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent_executive_team import cli
-from agent_executive_team.memo import serialize
+from agent_executive_team.memo import build_memo, serialize
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "tests" / "fixtures" / "valid.json"
@@ -91,8 +91,7 @@ def test_subprocess_valid_fixture_exits_zero_with_canonical_json():
     assert memo["status"] == "needs_human_decision"
     assert memo["agent_status"] == "needs_review"
     assert memo["decision_status"] == "proposed"
-    canonical = json.dumps(memo, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    assert result.stdout == canonical.encode("ascii") + b"\n"
+    assert result.stdout == serialize(build_memo(json.loads(FIXTURE.read_bytes())))
 
 
 @pytest.mark.parametrize(
@@ -128,12 +127,81 @@ def test_subprocess_changing_one_option_changes_output(valid_payload):
     assert b"Adopt a different cadence" in changed.stdout
 
 
+def run_with_broken_pipe(data, broken):
+    """Run the real CLI with the read end of ``broken`` ('stdout' or 'stderr') closed up front."""
+    proc = subprocess.Popen(
+        [sys.executable, "-B", "-m", "agent_executive_team"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": "src"},
+    )
+    getattr(proc, broken).close()
+    proc.stdin.write(data)
+    proc.stdin.close()
+    kept = proc.stderr if broken == "stdout" else proc.stdout
+    output = kept.read()
+    kept.close()
+    return proc.wait(timeout=60), output
+
+
+def test_subprocess_closed_stdout_exits_one_with_only_internal_error(valid_payload):
+    code, stderr = run_with_broken_pipe(compact(valid_payload), "stdout")
+
+    assert code == 1
+    assert stderr == INTERNAL_STDERR
+
+
+def test_subprocess_closed_stderr_still_exits_two_on_bad_input():
+    code, stdout = run_with_broken_pipe(b"not json", "stderr")
+
+    assert code == 2
+    assert stdout == b""
+
+
+def test_subprocess_closed_stderr_still_exits_zero_on_valid_input(valid_payload):
+    code, stdout = run_with_broken_pipe(compact(valid_payload), "stderr")
+
+    assert code == 0
+    assert stdout == serialize(build_memo(valid_payload))
+
+
+LEAK_SCRIPT = """
+import sys
+from agent_executive_team import cli
+
+def boom(*args):
+    raise RuntimeError("LEAK-MARKER-7f3a " + repr(args))
+
+setattr(cli, sys.argv[1], boom)
+raise SystemExit(cli.main())
+"""
+
+
+@pytest.mark.parametrize("target", ["validate", "build_memo", "serialize"])
+def test_subprocess_internal_error_puts_nothing_but_the_code_on_real_streams(
+    valid_payload, target
+):
+    valid_payload["decision"]["question"] = MARKER
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", LEAK_SCRIPT, target],
+        input=compact(valid_payload),
+        capture_output=True,
+        cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": "src"},
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == b""
+    assert result.stderr == INTERNAL_STDERR
+
+
 # --- in-process: contract details --------------------------------------------------------------
 
 
 def test_main_matches_library_pipeline(valid_payload):
-    from agent_executive_team.memo import build_memo
-
     code, out, err = run_main(compact(valid_payload))
 
     assert (code, err) == (0, b"")
@@ -284,22 +352,80 @@ def test_internal_error_when_stdout_fails(valid_payload, failing):
     assert stderr.getvalue() == INTERNAL_STDERR
 
 
+class BrokenStderr:
+    """Fails on write or flush; records whether it was called from inside an ``except`` block."""
+
+    def __init__(self, failing):
+        self.failing = failing
+        self.handling_exception = []
+
+    def write(self, data):
+        self.handling_exception.append(sys.exc_info()[0] is not None)
+        if self.failing == "write":
+            raise OSError(MARKER)
+        return len(data)
+
+    def flush(self):
+        if self.failing == "flush":
+            raise OSError(MARKER)
+
+
+@pytest.mark.parametrize("failing", ["write", "flush"])
+def test_broken_stderr_keeps_exit_two_for_rejected_input(failing):
+    assert cli.main(io.BytesIO(b"not json"), io.BytesIO(), BrokenStderr(failing)) == 2
+
+
+@pytest.mark.parametrize("failing", ["write", "flush"])
+def test_broken_stderr_keeps_exit_one_for_internal_error(monkeypatch, valid_payload, failing):
+    monkeypatch.setattr(cli, "build_memo", boom)
+
+    code = cli.main(io.BytesIO(compact(valid_payload)), io.BytesIO(), BrokenStderr(failing))
+
+    assert code == 1
+
+
+def test_broken_stderr_does_not_change_a_successful_run(valid_payload):
+    stdout = io.BytesIO()
+
+    assert cli.main(io.BytesIO(compact(valid_payload)), stdout, BrokenStderr("write")) == 0
+    assert stdout.getvalue() == serialize(build_memo(valid_payload))
+
+
+@pytest.mark.parametrize("outcome", ["rejected", "internal"])
+def test_stderr_is_written_outside_any_except_block(monkeypatch, valid_payload, outcome):
+    data = b"not json"
+    if outcome == "internal":
+        monkeypatch.setattr(cli, "build_memo", boom)
+        data = compact(valid_payload)
+    stderr = BrokenStderr("flush")
+
+    cli.main(io.BytesIO(data), io.BytesIO(), stderr)
+
+    assert stderr.handling_exception == [False]
+
+
 # --- side effects: observed from inside the process that runs the CLI --------------------------
 
 GUARD_SCRIPT = r"""
 import io, json, os, sys
 
 events = []
+watching = False  # reads are only meaningful while main runs; imports legitimately read files
 WRITE_MODE = set("wax+")
 WRITE_FLAGS = (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
                | getattr(os, "O_EXCL", 0))
-PREFIXES = ("socket.", "urllib.", "http.client.", "ftplib.", "smtplib.", "telnetlib.",
-            "os.exec", "os.spawn", "os.posix_spawn", "os.startfile", "os.fork", "os.system",
-            "subprocess.", "os.remove", "os.rename", "os.replace", "os.mkdir", "os.rmdir",
-            "os.truncate", "shutil.", "pty.", "winreg.", "ctypes.")
+ALWAYS = ("socket.", "urllib.", "http.client.", "ftplib.", "smtplib.", "telnetlib.",
+          "os.exec", "os.spawn", "os.posix_spawn", "os.startfile", "os.fork", "os.system",
+          "subprocess.", "os.remove", "os.rename", "os.replace", "os.mkdir", "os.rmdir",
+          "os.truncate", "shutil.", "pty.", "winreg.", "ctypes.")
+WHILE_WATCHING = ("os.listdir", "os.scandir", "os.walk", "glob.")
+# os.stat and friends raise no audit event, so they are caught as builtin calls instead.
+FS_PROBES = {"stat", "lstat", "listdir", "scandir", "open", "access", "readlink",
+             "_path_exists", "_path_isfile", "_path_isdir", "_path_islink", "_path_isjunction",
+             "_getfinalpathname", "_getfullpathname", "_getvolumepathname", "chdir", "getcwd"}
 
 def hook(name, args):
-    if name.startswith(PREFIXES):
+    if name.startswith(ALWAYS):
         events.append(name)
     elif name == "open":
         mode, flags = args[1], args[2]
@@ -307,22 +433,48 @@ def hook(name, args):
             isinstance(flags, int) and flags & WRITE_FLAGS
         ):
             events.append("open:write")
+        elif watching:
+            events.append("open:read")
+    elif watching and name.startswith(WHILE_WATCHING):
+        events.append(name)
+
+def profiler(frame, event, arg):
+    if event == "c_call" and getattr(arg, "__name__", "") in FS_PROBES:
+        events.append("call:" + arg.__name__)
+
+def observe(function, *args):
+    global watching
+    watching = True
+    sys.setprofile(profiler)
+    try:
+        return function(*args)
+    finally:
+        sys.setprofile(None)
+        watching = False
 
 sys.addaudithook(hook)
 
-# Positive control: the hook must see these (sys.audit only raises the event; nothing happens).
-sys.audit("socket.connect", None, ("sentinel.invalid", 80))
-sys.audit("open", "control.txt", "w", 577)
-sys.audit("subprocess.Popen", "cmd", [], None, None)
-control = list(events)
+# Positive control: the hooks must see these. sys.audit only raises the event (nothing happens);
+# the stat/listdir calls are real but touch only the current directory.
+def control():
+    sys.audit("socket.connect", None, ("sentinel.invalid", 80))
+    sys.audit("open", "control.txt", "w", 577)
+    sys.audit("open", "control.txt", "rb", 0)
+    sys.audit("subprocess.Popen", "cmd", [], None, None)
+    os.stat(".")
+    os.path.exists(".")
+    os.listdir(".")
+
+observe(control)
+control_events = list(events)
 del events[:]
 
 from agent_executive_team import cli
 
 data = sys.stdin.buffer.read()
 stdout, stderr = io.BytesIO(), io.BytesIO()
-code = cli.main(io.BytesIO(data), stdout, stderr)
-print(json.dumps({"control": control, "events": events, "code": code,
+code = observe(cli.main, io.BytesIO(data), stdout, stderr)
+print(json.dumps({"control": control_events, "events": events, "code": code,
                   "stdout": stdout.getvalue().decode("ascii"),
                   "stderr": stderr.getvalue().decode("ascii")}))
 """
@@ -345,7 +497,10 @@ def run_guarded(data):
 def test_guard_script_observes_network_write_and_process_events(valid_payload):
     report = run_guarded(compact(valid_payload))
 
-    assert report["control"] == ["socket.connect", "open:write", "subprocess.Popen"]
+    seen = set(report["control"])
+    assert {"socket.connect", "open:write", "open:read", "subprocess.Popen"} <= seen
+    assert {"os.listdir", "call:stat"} <= seen
+    assert any(event.startswith("call:_path_") or event == "call:stat" for event in seen)
 
 
 def test_valid_run_has_no_network_write_or_process_event_and_never_follows_uris(valid_payload):

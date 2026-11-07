@@ -1,4 +1,4 @@
-"""Strict input-contract validation: bytes in, parsed dict out, one stable error otherwise.
+"""Strict input-contract validation: bytes in, parsed dict out, one stable error for bad input.
 
 Every input-caused failure (bad size, encoding, JSON, shape, value, scope, nesting depth) is
 reported as ``ValidationError`` with the fixed code ``invalid_input``; the error never carries or
