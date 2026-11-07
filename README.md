@@ -53,4 +53,4 @@ Một dòng JSON (khóa sắp xếp, ASCII, kết bằng đúng một LF) gồm:
 
 ## Giấy phép
 
-`UNLICENSED` tạm, chưa phát hành. Chủ repo chốt giấy phép trước khi tạo remote.
+MIT — xem `LICENSE`. Bản `0.1.0` chưa phát hành.

@@ -61,7 +61,7 @@ def test_manifest_fields(manifest):
     assert data["name"] == "agent-executive-team"
     assert data["version"] == "0.1.0"
     assert data["skills"] == "./skills/"
-    assert data["license"] == "UNLICENSED"
+    assert data["license"] == "MIT"
     assert data["author"] == {"name": "Nguyễn Quang Đức"}
     for forbidden_key in ("homepage", "repository", "email"):
         assert forbidden_key not in data
@@ -119,7 +119,7 @@ def test_readme_warns_about_scope_and_license():
     assert "bản nháp xác định" in text
     assert "không phải" in text and "AI" in text
     assert "dữ liệu tổng hợp" in text
-    assert "UNLICENSED" in text
+    assert "MIT" in text
     assert "chưa phát hành" in text
 
 
@@ -141,8 +141,14 @@ def test_gemini_is_a_prose_pointer_not_an_import():
 
 
 def test_excluded_files_are_absent():
-    for name in ("ECOSYSTEM.md", "LICENSE", "docs/CONTRACT.md"):
+    for name in ("ECOSYSTEM.md", "docs/CONTRACT.md"):
         assert not (ROOT / name).exists()
+
+
+def test_license_is_mit():
+    text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+    assert text.splitlines()[0] == "MIT License"
+    assert "Permission is hereby granted, free of charge" in text
 
 
 def test_shipped_files_have_no_private_or_source_references():
