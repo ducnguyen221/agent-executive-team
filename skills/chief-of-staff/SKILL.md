@@ -15,23 +15,56 @@ Skill này chạy một lệnh ngoại tuyến để biến dữ liệu tổng h
 
 ## Cách chạy
 
-Từ gốc repo, đưa JSON vào stdin (mẫu hợp lệ: `tests/fixtures/valid.json`):
+Cần Python 3.11 trở lên (chỉ thư viện chuẩn). Lệnh chạy từ nơi plugin được cài, không từ thư mục hiện hành.
 
-```
-PYTHONPATH=src python -B -m agent_executive_team < tests/fixtures/valid.json
+**Tìm thư mục skill:** là đường thư mục chứa `SKILL.md` này mà harness báo khi nạp skill. Không tự đoán, không dựa vào thư mục hiện hành. Input là một file JSON (mẫu hợp lệ: `tests/fixtures/valid.json` ở gốc plugin); lệnh đọc file đó qua stdin, không qua ống của shell.
+
+Bash (Linux, macOS, Git Bash). Thay hai chỗ trong nháy đơn bằng đường thật; nếu đường có nháy đơn thì viết `'\''` thay cho nó:
+
+```bash
+SKILL_DIR='<thư mục skill>'
+INPUT='<file JSON input>'
+PY=$(type -P python || type -P python3)
+"$PY" -B -I "$SKILL_DIR/scripts/executive_memo.py" --format text < "$INPUT"
 ```
 
-Trên PowerShell (Windows): đặt `$env:PYTHONPATH = "src"` rồi chạy `cmd /c "python -B -m agent_executive_team < tests\fixtures\valid.json"`. Không pipe chuỗi hay `Get-Content` của PowerShell vào lệnh: PowerShell 5.1 chèn BOM vào stdin nên CLI trả exit 2 `invalid_input` dù input hợp lệ.
+PowerShell (Windows PowerShell 5.1 và PowerShell 7). Thay hai chỗ trong nháy đơn; nháy đơn trong đường viết đôi (`''`), mọi nháy cong `‘ ’ ‚ ‛` cũng viết đôi:
+
+```powershell
+& {
+  $SkillDir = '<thư mục skill>'; $InputFile = '<file JSON input>'
+  $names = 'AET_PY', 'AET_SCRIPT', 'AET_INPUT', 'NoDefaultCurrentDirectoryInExePath'
+  $saved = @{}; foreach ($n in $names) { $saved[$n] = [Environment]::GetEnvironmentVariable($n) }
+  $savedEncoding = [Console]::OutputEncoding; $PSNativeCommandArgumentPassing = 'Legacy'
+  try {
+    $env:NoDefaultCurrentDirectoryInExePath = '1'
+    $env:AET_PY = (Get-Command python -CommandType Application -ErrorAction Stop)[0].Source
+    $env:AET_SCRIPT = Join-Path $SkillDir 'scripts\executive_memo.py'; $env:AET_INPUT = $InputFile
+    try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch {}
+    & $env:ComSpec /d /v:off /s /c '"%AET_PY%" -B -I "%AET_SCRIPT%" --format text < "%AET_INPUT%"'
+  } finally {
+    foreach ($n in $names) { [Environment]::SetEnvironmentVariable($n, $saved[$n]) }
+    try { [Console]::OutputEncoding = $savedEncoding } catch {}
+  }
+}
+```
+
+PowerShell không có `<` và ống PowerShell (`Get-Content ... | python ...`) chèn BOM vào đầu stdin (CLI trả exit 2 `invalid_input` dù input hợp lệ), nên lệnh đưa input qua `cmd` và đưa đường bằng biến môi trường, không ghép vào chuỗi lệnh. Muốn lưu kết quả ra file không đổi byte: thêm biến `AET_OUTPUT` (đặt và khôi phục cùng cách với `AET_INPUT`) và ghi ` > "%AET_OUTPUT%"` vào cuối chuỗi `cmd`; không dùng `>` hay `Out-File` của PowerShell 5.1 vì chúng ghi UTF-16 kèm BOM. Cần JSON cho máy: bỏ `--format text`.
 
 Hợp đồng input/output đầy đủ (khóa, giới hạn, cảnh báo) nằm ở mục "Hợp đồng input" và "Hợp đồng output" của README.
 
 Mã thoát:
 
-- exit 0: memo JSON một dòng trên stdout.
+- exit 0: bản đọc văn bản (hoặc memo JSON một dòng nếu bỏ `--format text`) trên stdout.
 - exit 2: input bị từ chối, stderr là `invalid_input`, stdout rỗng. stderr là mã tĩnh, không nói sai ở đâu: tự đối chiếu input với hợp đồng trong README (kích thước, không BOM, đủ bốn khóa cấp trên cùng, số phương án và bằng chứng, độ dài văn bản, ngày hợp lệ, đúng một `status_quo`, tenant `synthetic-demo`, `id` không trùng), sửa rồi chạy lại; không đoán và không nới giới hạn.
-- exit 1: lỗi nội bộ hoặc I/O, stderr là `internal_error`, không in lại input.
+- exit 2 với stderr `invalid_arguments`: đối số lệnh sai (chỉ nhận `--format text`); sửa lệnh, không sửa input.
+- exit 1: lỗi nội bộ, I/O hoặc không thấy mã plugin cạnh skill (cài thiếu `src/`), stderr là `internal_error`, không in lại input.
+- exit 1 kèm thông báo của shell (không thấy file input, không thấy `python`): lệnh chưa chạm CLI; kiểm đường file và `python` trên `PATH`.
+- exit 9009 hoặc thông báo "Python was not found" (Windows): đó là bản `python` giả của Microsoft Store (`WindowsApps`); cài Python 3.11+ hoặc tắt App execution alias, rồi chạy lại.
 
 ## Cách hiểu kết quả
+
+Trình bản đọc nguyên văn trong một khối mã rào `text` (không dán thẳng vào câu trả lời: chữ trong dữ liệu có thể bị hiển thị như định dạng). Nói rõ ba điều: memo đang chờ người có thẩm quyền quyết, mọi bằng chứng chưa xác minh, và các cảnh báo trong mục Cảnh báo. Không chọn phương án thay người. Cần máy đọc thì bỏ `--format text` để nhận JSON.
 
 - `status` luôn là `needs_human_decision`: memo chờ người quyết định, không khẳng định đã phê duyệt hay đã hành động.
 - `agent_status` luôn là `needs_review` và `decision_status` luôn là `proposed`.

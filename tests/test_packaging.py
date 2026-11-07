@@ -15,7 +15,7 @@ CLAUDE_MANIFEST = ROOT / ".claude-plugin" / "plugin.json"
 CODEX_MANIFEST = ROOT / ".codex-plugin" / "plugin.json"
 SKILLS_DIR = ROOT / "skills"
 README = ROOT / "README.md"
-COMMAND = "python -B -m agent_executive_team"
+COMMAND = "-B -I \"$SKILL_DIR/scripts/executive_memo.py\""
 FORBIDDEN = ("RESEARCH_ORIGINAL", "OneDrive", "C:/Users", "C:\\Users", "workshop-records")
 # Vietnamese letters that never occur in English prose.
 VIETNAMESE = re.compile(
@@ -164,12 +164,6 @@ def test_shipped_files_have_no_private_or_source_references():
 
 # --- Step 4 fix round: README/skill numbers and commands must match the code ---
 
-BACKSLASH = chr(92)  # written this way so the file holds no ambiguous escape
-POWERSHELL_COMMAND = (
-    'cmd /c "python -B -m agent_executive_team < tests' + BACKSLASH + 'fixtures' + BACKSLASH + 'valid.json"'
-)
-
-
 def _readme():
     return README.read_text(encoding="utf-8")
 
@@ -206,11 +200,34 @@ def test_skill_numbers_match_validation_constants():
     assert f"tối đa {v.MAX_EVIDENCE} bằng chứng" in body
 
 
+def _fenced(kind, text):
+    match = re.search(rf"^```{kind}\n.*?^```\n", text, re.M | re.S)
+    assert match, kind
+    return match.group(0)
+
+
 def test_powershell_command_avoids_the_bom_pipe():
     for text in (_readme(), _skill_text()):
-        assert POWERSHELL_COMMAND in text
+        assert "& $env:ComSpec /d /v:off /s /c" in text
         assert "BOM" in text
         assert "Get-Content -Raw tests" not in text  # the old command that exits 2
+
+
+def test_readme_repeats_the_skill_command_blocks_verbatim():
+    for kind in ("bash", "powershell"):
+        assert _fenced(kind, _skill_text()) in _readme()
+
+
+def test_skill_wraps_the_reading_in_a_text_fence():
+    _, body = _frontmatter_and_body(_skill_text())
+    assert "khối mã rào `text`" in body
+    assert "--format text" in body
+
+
+def test_skill_exit_table_covers_shell_failures():
+    _, body = _frontmatter_and_body(_skill_text())
+    for needle in ("9009", "Python was not found", "invalid_arguments", "Python 3.11"):
+        assert needle in body, needle
 
 
 def test_skill_points_to_readme_contract_and_explains_exit_2():

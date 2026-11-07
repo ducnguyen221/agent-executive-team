@@ -12,13 +12,39 @@ Plugin trợ lý điều hành, lát ngoại tuyến đầu tiên: một lệnh 
 
 ## Cách chạy
 
-Cần Python 3.12, chỉ dùng thư viện chuẩn. Từ gốc repo:
+Cần Python 3.11 trở lên (CI đo 3.11 đến 3.13), chỉ dùng thư viện chuẩn. Lệnh chạy script khởi chạy nằm trong thư mục skill (`skills/chief-of-staff/scripts/executive_memo.py`), từ nơi plugin được cài; script tự tìm gốc plugin, không cần `PYTHONPATH`, không phụ thuộc thư mục hiện hành. `<thư mục skill>` là thư mục chứa `SKILL.md` (từ gốc repo: `skills/chief-of-staff`), `<file JSON input>` là file input (mẫu hợp lệ: `tests/fixtures/valid.json`). Mặc định in JSON một dòng; `--format text` in bản đọc cho người.
 
-```
-PYTHONPATH=src python -B -m agent_executive_team < tests/fixtures/valid.json
+Bash (Linux, macOS, Git Bash); đường có nháy đơn thì viết `'\''` thay cho nó:
+
+```bash
+SKILL_DIR='<thư mục skill>'
+INPUT='<file JSON input>'
+PY=$(type -P python || type -P python3)
+"$PY" -B -I "$SKILL_DIR/scripts/executive_memo.py" --format text < "$INPUT"
 ```
 
-Trên PowerShell (Windows): đặt `$env:PYTHONPATH = "src"` rồi chạy `cmd /c "python -B -m agent_executive_team < tests\fixtures\valid.json"`. Không dùng ống PowerShell (`Get-Content ... | python ...` hay bất kỳ chuỗi PowerShell nào đưa vào lệnh): PowerShell 5.1 chèn dấu BOM (`EF BB BF`) vào đầu stdin, CLI từ chối BOM và trả exit 2 `invalid_input` dù input hợp lệ.
+PowerShell (Windows PowerShell 5.1 và PowerShell 7); nháy đơn trong đường viết đôi (`''`), nháy cong `‘ ’ ‚ ‛` cũng viết đôi:
+
+```powershell
+& {
+  $SkillDir = '<thư mục skill>'; $InputFile = '<file JSON input>'
+  $names = 'AET_PY', 'AET_SCRIPT', 'AET_INPUT', 'NoDefaultCurrentDirectoryInExePath'
+  $saved = @{}; foreach ($n in $names) { $saved[$n] = [Environment]::GetEnvironmentVariable($n) }
+  $savedEncoding = [Console]::OutputEncoding; $PSNativeCommandArgumentPassing = 'Legacy'
+  try {
+    $env:NoDefaultCurrentDirectoryInExePath = '1'
+    $env:AET_PY = (Get-Command python -CommandType Application -ErrorAction Stop)[0].Source
+    $env:AET_SCRIPT = Join-Path $SkillDir 'scripts\executive_memo.py'; $env:AET_INPUT = $InputFile
+    try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch {}
+    & $env:ComSpec /d /v:off /s /c '"%AET_PY%" -B -I "%AET_SCRIPT%" --format text < "%AET_INPUT%"'
+  } finally {
+    foreach ($n in $names) { [Environment]::SetEnvironmentVariable($n, $saved[$n]) }
+    try { [Console]::OutputEncoding = $savedEncoding } catch {}
+  }
+}
+```
+
+Không dùng ống PowerShell (`Get-Content ... | python ...` hay bất kỳ chuỗi PowerShell nào đưa vào lệnh): PowerShell 5.1 chèn dấu BOM (`EF BB BF`) vào đầu stdin, CLI từ chối BOM và trả exit 2 `invalid_input` dù input hợp lệ; lệnh trên đưa input qua `cmd` nên không có BOM. Lưu bản đọc ra file không đổi byte: thêm biến `AET_OUTPUT` (đặt và khôi phục cùng cách với `AET_INPUT`) và ` > "%AET_OUTPUT%"` vào cuối chuỗi `cmd`; không dùng `>` hay `Out-File` của PowerShell 5.1 vì chúng ghi UTF-16 kèm BOM. Lỗi thường gặp: exit 1 kèm thông báo của shell (không thấy file input hoặc `python`); exit 9009 hoặc "Python was not found" là bản `python` giả của Microsoft Store (cài Python hoặc tắt App execution alias).
 
 Chạy test và đo độ phủ (cần `pytest`, `pytest-cov`; ngưỡng 80 %):
 
