@@ -115,9 +115,12 @@ def test_ecosystem_has_five_labels():
         assert f"- **{label}:**" in text
 
 
-def test_changelog_has_unreleased_and_first_release():
+def test_changelog_has_current_and_first_release():
+    import json
+
     text = _read(CHANGELOG)
-    assert "Chưa phát hành" in text
+    version = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
+    assert f"## {version} — " in text
     assert "SPR-02" in text
     assert "0.1.0 — 2026-11-07" in text
 

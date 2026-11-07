@@ -108,4 +108,4 @@ Một dòng JSON (khóa sắp xếp, ASCII, kết bằng đúng một LF) gồm:
 
 ## Giấy phép
 
-MIT — xem `LICENSE`. Bản `0.1.0` chưa phát hành.
+MIT — xem `LICENSE`. Bản hiện tại: `0.2.0` (xem `CHANGELOG.md`).

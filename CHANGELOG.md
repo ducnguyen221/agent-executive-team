@@ -1,6 +1,6 @@
 # Nhật ký thay đổi
 
-## Chưa phát hành
+## 0.2.0 — 2026-11-08
 
 SPR-02 (hợp đồng gọi `1.1.0`):
 

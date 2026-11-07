@@ -59,7 +59,7 @@ def _shipped_files():
 def test_manifest_fields(manifest):
     data = _load(manifest)
     assert data["name"] == "agent-executive-team"
-    assert data["version"] == "0.1.0"
+    assert data["version"] == "0.2.0"
     assert data["skills"] == "./skills/"
     assert data["license"] == "MIT"
     assert data["author"] == {"name": "Nguyễn Quang Đức"}
@@ -120,7 +120,8 @@ def test_readme_warns_about_scope_and_license():
     assert "không phải" in text and "AI" in text
     assert "dữ liệu tổng hợp" in text
     assert "MIT" in text
-    assert "chưa phát hành" in text
+    version = json.loads(CLAUDE_MANIFEST.read_text(encoding="utf-8"))["version"]
+    assert f"`{version}`" in text  # README names the current version
 
 
 def test_claude_md_lives_in_dot_claude_and_is_exactly_the_agents_import():

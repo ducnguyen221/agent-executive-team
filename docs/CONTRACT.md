@@ -77,4 +77,4 @@ Không có biến môi trường nào bắt buộc. Cần Python 3.11 trở lên
 - Đổi cấu trúc hay nghĩa của JSON, hoặc đổi nghĩa mã thoát = tăng **major**.
 - Sửa lời tài liệu, không đổi hành vi = tăng **patch**.
 
-Trạng thái `draft`: plugin `0.1.0` chưa phát hành; hợp đồng có thể đổi trước bản phát hành đầu.
+Trạng thái `draft`: hợp đồng `1.1.0` đi cùng plugin `0.2.0`; còn có thể đổi trước khi plugin lên `1.0.0`.

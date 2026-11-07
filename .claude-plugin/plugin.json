@@ -1,6 +1,6 @@
 {
   "name": "agent-executive-team",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Offline executive assistant slice: turns synthetic decision data into a deterministic draft decision memo that always waits for a human decision.",
   "author": {
     "name": "Nguyễn Quang Đức"
