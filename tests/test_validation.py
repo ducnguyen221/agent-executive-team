@@ -1,7 +1,13 @@
 """Input-contract validation (FR1, FR2, FR8).
 
 Every negative test starts from a payload that is first proven valid, then applies exactly one
-change. If the matching check were removed from validation.py, exactly that test would turn red.
+change, so removing the matching check from validation.py turns that test red (verified by manual
+mutation of each layer, see TK1-report). Three layers cannot be isolated by ANY payload, because
+another layer rejects the same input; their negative tests still exist but cannot prove the layer:
+  - the explicit UTF-8 BOM check (json.loads also rejects a leading BOM),
+  - parse_constant for NaN/Infinity (they parse to floats, which every typed field rejects),
+  - size-check-before-decode ordering (both orders reject; the order is not observable here).
+Input-caused errors map to invalid_input; internal errors must propagate unchanged.
 """
 
 import json
@@ -10,8 +16,6 @@ import pytest
 
 from agent_executive_team import validation
 from agent_executive_team.validation import ALLOWED_TENANTS, ValidationError, validate
-
-from conftest import build_valid_payload
 
 SENTINEL = "SENTINEL_7f3c-IGNORE-PREVIOUS-INSTRUCTIONS"
 MISSING = object()  # marks "delete this key"
@@ -42,8 +46,10 @@ def plant(payload):
     return payload
 
 
-def planted_payload():
-    return plant(build_valid_payload())
+@pytest.fixture
+def planted(valid_payload):
+    """A fresh valid payload with the sentinel planted in three text fields."""
+    return plant(valid_payload)
 
 
 def assert_rejected(raw, planted=True):
@@ -62,22 +68,22 @@ def assert_rejected(raw, planted=True):
     assert exc.__context__ is None
 
 
-def assert_one_change_rejected(path, value):
+def assert_one_change_rejected(base, path, value):
     """Base is valid; one path set to `value` must be rejected."""
-    payload = planted_payload()
+    payload = base
     assert validate(encode(payload)) == payload  # control: base alone passes
     set_path(payload, path, value)
     assert_rejected(encode(payload))
 
 
-def assert_one_change_accepted(path, value):
-    payload = planted_payload()
+def assert_one_change_accepted(base, path, value):
+    payload = base
     set_path(payload, path, value)
     assert validate(encode(payload)) == payload
 
 
-def options_of(count):
-    base = build_valid_payload()["options"]
+def options_of(payload, count):
+    base = payload["options"]
     options = [base[0]]
     for i in range(1, count):
         extra = dict(base[1])
@@ -86,8 +92,8 @@ def options_of(count):
     return options[:count]
 
 
-def evidence_of(count):
-    template = build_valid_payload()["evidence"][0]
+def evidence_of(payload, count):
+    template = payload["evidence"][0]
     items = []
     for i in range(count):
         item = dict(template)
@@ -159,8 +165,8 @@ def test_bytearray_and_memoryview_rejected(valid_payload):
         pytest.param(lambda raw: raw + raw, id="two-documents"),
     ],
 )
-def test_malformed_json_rejected(mangle):
-    assert_rejected(mangle(encode(planted_payload())))
+def test_malformed_json_rejected(planted, mangle):
+    assert_rejected(mangle(encode(planted)))
 
 
 @pytest.mark.parametrize("raw", [b"", b"   \n", b"\x00"], ids=["empty", "whitespace-only", "nul"])
@@ -186,18 +192,18 @@ def test_top_level_must_be_object(raw):
         pytest.param(b"\xed\xa0\x80", id="cesu-surrogate"),
     ],
 )
-def test_invalid_utf8_rejected(bad_bytes):
-    raw = encode(planted_payload())
+def test_invalid_utf8_rejected(planted, bad_bytes):
+    raw = encode(planted)
     assert b"Synthetic Owner" in raw
     assert_rejected(raw.replace(b"Synthetic Owner", b"Synthetic " + bad_bytes + b" Owner"))
 
 
-def test_utf16_encoded_input_rejected():
-    assert_rejected(json.dumps(planted_payload()).encode("utf-16"), planted=False)
+def test_utf16_encoded_input_rejected(planted):
+    assert_rejected(json.dumps(planted).encode("utf-16"), planted=False)
 
 
-def test_utf8_bom_rejected():
-    assert_rejected(b"\xef\xbb\xbf" + encode(planted_payload()))
+def test_utf8_bom_rejected(planted):
+    assert_rejected(b"\xef\xbb\xbf" + encode(planted))
 
 
 @pytest.mark.parametrize(
@@ -211,8 +217,8 @@ def test_utf8_bom_rejected():
         pytest.param('"kind": "actual"', '"kind": "actual", "kind": "actual"', id="evidence"),
     ],
 )
-def test_duplicate_key_at_any_level_rejected(fragment, duplicated):
-    text = json.dumps(planted_payload())
+def test_duplicate_key_at_any_level_rejected(planted, fragment, duplicated):
+    text = json.dumps(planted)
     assert text.count(fragment) == 1
     assert_rejected(text.replace(fragment, duplicated).encode("utf-8"))
 
@@ -223,8 +229,8 @@ def test_duplicate_key_at_any_level_rejected(fragment, duplicated):
     ['"version": 1', '"status_quo": false', '"deadline": "2026-11-30"'],
     ids=["version", "status-quo", "date"],
 )
-def test_json_non_finite_constants_rejected(constant, fragment):
-    text = json.dumps(planted_payload())
+def test_json_non_finite_constants_rejected(planted, constant, fragment):
+    text = json.dumps(planted)
     key = fragment.split(":")[0]
     assert fragment in text
     assert_rejected(text.replace(fragment, f"{key}: {constant}").encode("utf-8"))
@@ -248,23 +254,23 @@ def test_huge_integer_digits_rejected():
 # --------------------------------------------------------------------------- size layer
 
 
-def test_size_exactly_65536_bytes_accepted():
-    payload = planted_payload()
+def test_size_exactly_65536_bytes_accepted(planted):
+    payload = planted
     raw = encode(payload)
     raw += b" " * (65536 - len(raw))
     assert len(raw) == 65536
     assert validate(raw) == payload
 
 
-def test_size_65537_bytes_rejected():
-    raw = encode(planted_payload())
+def test_size_65537_bytes_rejected(planted):
+    raw = encode(planted)
     raw += b" " * (65537 - len(raw))
     assert len(raw) == 65537
     assert_rejected(raw)
 
 
-def test_size_far_over_limit_rejected():
-    raw = encode(planted_payload())
+def test_size_far_over_limit_rejected(planted):
+    raw = encode(planted)
     assert_rejected(raw + b" " * 1_000_000)
 
 
@@ -290,12 +296,12 @@ def test_size_oversize_non_utf8_garbage_rejected():
         pytest.param([1], id="list"),
     ],
 )
-def test_version_must_be_integer_one(value):
-    assert_one_change_rejected(("version",), value)
+def test_version_must_be_integer_one(planted, value):
+    assert_one_change_rejected(planted, ("version",), value)
 
 
-def test_version_missing_rejected():
-    assert_one_change_rejected(("version",), MISSING)
+def test_version_missing_rejected(planted):
+    assert_one_change_rejected(planted, ("version",), MISSING)
 
 
 # --------------------------------------------------------------------------- object shape (extra / missing / null)
@@ -319,13 +325,13 @@ OBJECT_PATHS = [
 
 
 @pytest.mark.parametrize("path, keys", OBJECT_PATHS)
-def test_extra_field_rejected(path, keys):
-    assert_one_change_rejected(path + ("unexpected",), "x")
+def test_extra_field_rejected(planted, path, keys):
+    assert_one_change_rejected(planted, path + ("unexpected",), "x")
 
 
 @pytest.mark.parametrize("path, keys", OBJECT_PATHS)
-def test_extra_field_with_null_value_rejected(path, keys):
-    assert_one_change_rejected(path + ("unexpected",), None)
+def test_extra_field_with_null_value_rejected(planted, path, keys):
+    assert_one_change_rejected(planted, path + ("unexpected",), None)
 
 
 def _every_key(paths):
@@ -336,8 +342,8 @@ def _every_key(paths):
 
 
 @pytest.mark.parametrize("path", list(_every_key(OBJECT_PATHS)))
-def test_missing_field_rejected(path):
-    assert_one_change_rejected(path, MISSING)
+def test_missing_field_rejected(planted, path):
+    assert_one_change_rejected(planted, path, MISSING)
 
 
 @pytest.mark.parametrize(
@@ -351,18 +357,18 @@ def test_missing_field_rejected(path):
     ],
 )
 @pytest.mark.parametrize("value", [None, "text", 5, True], ids=["null", "string", "int", "bool"])
-def test_container_with_wrong_type_rejected(path, value):
-    assert_one_change_rejected(path, value)
+def test_container_with_wrong_type_rejected(planted, path, value):
+    assert_one_change_rejected(planted, path, value)
 
 
 @pytest.mark.parametrize("path", [("decision",), ("options", 1), ("evidence", 1)], ids=["decision", "option", "evidence"])
-def test_object_given_as_list_rejected(path):
-    assert_one_change_rejected(path, [])
+def test_object_given_as_list_rejected(planted, path):
+    assert_one_change_rejected(planted, path, [])
 
 
 @pytest.mark.parametrize("path", [("options",), ("evidence",)], ids=["options", "evidence"])
-def test_list_given_as_object_rejected(path):
-    assert_one_change_rejected(path, {})
+def test_list_given_as_object_rejected(planted, path):
+    assert_one_change_rejected(planted, path, {})
 
 
 # --------------------------------------------------------------------------- text fields (1-500 code points, strip non-empty)
@@ -402,14 +408,14 @@ GOOD_TEXT = [
 
 @pytest.mark.parametrize("path", TEXT_PATH_PARAMS)
 @pytest.mark.parametrize("value", BAD_TEXT)
-def test_text_field_bad_value_rejected(path, value):
-    assert_one_change_rejected(path, value)
+def test_text_field_bad_value_rejected(planted, path, value):
+    assert_one_change_rejected(planted, path, value)
 
 
 @pytest.mark.parametrize("path", TEXT_PATH_PARAMS)
 @pytest.mark.parametrize("value", GOOD_TEXT)
-def test_text_field_boundary_value_accepted(path, value):
-    assert_one_change_accepted(path, value)
+def test_text_field_boundary_value_accepted(planted, path, value):
+    assert_one_change_accepted(planted, path, value)
 
 
 def test_lone_surrogate_does_not_break_validator_and_survives(valid_payload):
@@ -423,8 +429,8 @@ def test_lone_surrogate_does_not_break_validator_and_survives(valid_payload):
 
 @pytest.mark.parametrize("value", ["", "group-1", "x", "x" * 500], ids=["empty", "named", "one-char", "500-chars"])
 @pytest.mark.parametrize("index", [0, 1])
-def test_conflict_group_valid_values_accepted(index, value):
-    assert_one_change_accepted(("evidence", index, "conflict_group"), value)
+def test_conflict_group_valid_values_accepted(planted, index, value):
+    assert_one_change_accepted(planted, ("evidence", index, "conflict_group"), value)
 
 
 @pytest.mark.parametrize(
@@ -441,8 +447,8 @@ def test_conflict_group_valid_values_accepted(index, value):
     ],
 )
 @pytest.mark.parametrize("index", [0, 1])
-def test_conflict_group_bad_values_rejected(index, value):
-    assert_one_change_rejected(("evidence", index, "conflict_group"), value)
+def test_conflict_group_bad_values_rejected(planted, index, value):
+    assert_one_change_rejected(planted, ("evidence", index, "conflict_group"), value)
 
 
 # --------------------------------------------------------------------------- dates
@@ -488,14 +494,14 @@ BAD_DATES = [
 
 @pytest.mark.parametrize("path", DATE_PATHS)
 @pytest.mark.parametrize("value", BAD_DATES)
-def test_bad_date_rejected(path, value):
-    assert_one_change_rejected(path, value)
+def test_bad_date_rejected(planted, path, value):
+    assert_one_change_rejected(planted, path, value)
 
 
 @pytest.mark.parametrize("path", DATE_PATHS)
 @pytest.mark.parametrize("value", ["2024-02-29", "2026-12-31", "0001-01-01", "9999-12-31"], ids=["leap-day", "year-end", "min", "max"])
-def test_valid_calendar_dates_accepted(path, value):
-    payload = planted_payload()
+def test_valid_calendar_dates_accepted(planted, path, value):
+    payload = planted
     if path[-1] == "effective_from":
         payload["evidence"][path[1]]["effective_to"] = "9999-12-31"  # keep the period ordered
     if path[-1] == "effective_to":
@@ -512,27 +518,27 @@ def test_valid_calendar_dates_accepted(path, value):
         pytest.param("2026-12-01", "2026-11-30", id="start-next-month"),
     ],
 )
-def test_inverted_period_rejected(start, end):
-    payload = planted_payload()
+def test_inverted_period_rejected(planted, start, end):
+    payload = planted
     assert validate(encode(payload)) == payload
     payload["evidence"][0]["effective_from"] = start
     payload["evidence"][0]["effective_to"] = end
     assert_rejected(encode(payload))
 
 
-def test_inverted_period_on_second_evidence_rejected():
-    assert_one_change_rejected(("evidence", 1, "effective_to"), "2026-11-19")
+def test_inverted_period_on_second_evidence_rejected(planted):
+    assert_one_change_rejected(planted, ("evidence", 1, "effective_to"), "2026-11-19")
 
 
-def test_single_day_period_accepted():
-    payload = planted_payload()
+def test_single_day_period_accepted(planted):
+    payload = planted
     payload["evidence"][0]["effective_from"] = "2026-11-10"
     payload["evidence"][0]["effective_to"] = "2026-11-10"
     assert validate(encode(payload)) == payload
 
 
-def test_period_dates_are_compared_as_dates_not_text():
-    payload = planted_payload()
+def test_period_dates_are_compared_as_dates_not_text(planted):
+    payload = planted
     payload["evidence"][0]["effective_from"] = "2026-11-09"
     payload["evidence"][0]["effective_to"] = "2026-11-10"
     assert validate(encode(payload)) == payload
@@ -542,18 +548,18 @@ def test_period_dates_are_compared_as_dates_not_text():
 
 
 @pytest.mark.parametrize("count", [0, 1, 5])
-def test_option_count_outside_2_to_4_rejected(count):
-    payload = planted_payload()
+def test_option_count_outside_2_to_4_rejected(planted, count):
+    payload = planted
     assert validate(encode(payload)) == payload
-    payload["options"] = options_of(count)
+    payload["options"] = options_of(planted, count)
     assert sum(o["status_quo"] for o in payload["options"]) == min(count, 1)
     assert_rejected(encode(payload))
 
 
 @pytest.mark.parametrize("count", [2, 3, 4])
-def test_option_count_2_to_4_accepted(count):
-    payload = planted_payload()
-    payload["options"] = options_of(count)
+def test_option_count_2_to_4_accepted(planted, count):
+    payload = planted
+    payload["options"] = options_of(planted, count)
     assert validate(encode(payload)) == payload
 
 
@@ -564,34 +570,34 @@ def test_option_count_2_to_4_accepted(count):
         pytest.param([(1, True)], id="two-status-quo"),
     ],
 )
-def test_status_quo_count_not_one_rejected_with_two_options(mutation):
-    payload = planted_payload()
+def test_status_quo_count_not_one_rejected_with_two_options(planted, mutation):
+    payload = planted
     assert validate(encode(payload)) == payload
     for index, flag in mutation:
         payload["options"][index]["status_quo"] = flag
     assert_rejected(encode(payload))
 
 
-def test_three_status_quo_in_three_options_rejected():
-    payload = planted_payload()
-    payload["options"] = options_of(3)
+def test_three_status_quo_in_three_options_rejected(planted):
+    payload = planted
+    payload["options"] = options_of(planted, 3)
     assert validate(encode(payload)) == payload
     for option in payload["options"]:
         option["status_quo"] = True
     assert_rejected(encode(payload))
 
 
-def test_zero_status_quo_in_four_options_rejected():
-    payload = planted_payload()
-    payload["options"] = options_of(4)
+def test_zero_status_quo_in_four_options_rejected(planted):
+    payload = planted
+    payload["options"] = options_of(planted, 4)
     assert validate(encode(payload)) == payload
     payload["options"][0]["status_quo"] = False
     assert_rejected(encode(payload))
 
 
-def test_status_quo_may_sit_on_any_option():
-    payload = planted_payload()
-    payload["options"] = options_of(3)
+def test_status_quo_may_sit_on_any_option(planted):
+    payload = planted
+    payload["options"] = options_of(planted, 3)
     payload["options"][0]["status_quo"] = False
     payload["options"][2]["status_quo"] = True
     assert validate(encode(payload)) == payload
@@ -610,52 +616,52 @@ def test_status_quo_may_sit_on_any_option():
         pytest.param(("options", 1, "status_quo"), [], id="false-as-list"),
     ],
 )
-def test_status_quo_must_be_real_boolean(path, value):
-    assert_one_change_rejected(path, value)
+def test_status_quo_must_be_real_boolean(planted, path, value):
+    assert_one_change_rejected(planted, path, value)
 
 
-def test_option_element_must_be_object():
-    assert_one_change_rejected(("options", 1), "Adopt new cadence")
+def test_option_element_must_be_object(planted):
+    assert_one_change_rejected(planted, ("options", 1), "Adopt new cadence")
 
 
 # --------------------------------------------------------------------------- evidence (count, id, kind, tenant)
 
 
-def test_evidence_empty_list_accepted():
-    payload = planted_payload()
+def test_evidence_empty_list_accepted(planted):
+    payload = planted
     payload["evidence"] = []
     assert validate(encode(payload)) == payload
 
 
 @pytest.mark.parametrize("count", [1, 20])
-def test_evidence_count_up_to_20_accepted(count):
-    payload = planted_payload()
-    payload["evidence"] = evidence_of(count)
+def test_evidence_count_up_to_20_accepted(planted, count):
+    payload = planted
+    payload["evidence"] = evidence_of(planted, count)
     assert validate(encode(payload)) == payload
 
 
-def test_evidence_count_21_rejected():
-    payload = planted_payload()
-    payload["evidence"] = evidence_of(20)
+def test_evidence_count_21_rejected(planted):
+    payload = planted
+    payload["evidence"] = evidence_of(planted, 20)
     assert validate(encode(payload)) == payload
-    payload["evidence"] = evidence_of(21)
+    payload["evidence"] = evidence_of(planted, 21)
     assert_rejected(encode(payload))
 
 
-def test_duplicate_evidence_id_rejected():
-    assert_one_change_rejected(("evidence", 1, "id"), "ev-001")
+def test_duplicate_evidence_id_rejected(planted):
+    assert_one_change_rejected(planted, ("evidence", 1, "id"), "ev-001")
 
 
-def test_duplicate_evidence_id_far_apart_rejected():
-    payload = planted_payload()
-    payload["evidence"] = evidence_of(20)
+def test_duplicate_evidence_id_far_apart_rejected(planted):
+    payload = planted
+    payload["evidence"] = evidence_of(planted, 20)
     assert validate(encode(payload)) == payload
     payload["evidence"][19]["id"] = payload["evidence"][0]["id"]
     assert_rejected(encode(payload))
 
 
-def test_evidence_ids_differing_only_by_case_or_padding_are_distinct():
-    payload = planted_payload()
+def test_evidence_ids_differing_only_by_case_or_padding_are_distinct(planted):
+    payload = planted
     payload["evidence"][0]["id"] = "EV"
     payload["evidence"][1]["id"] = "ev"
     assert validate(encode(payload)) == payload
@@ -665,8 +671,8 @@ def test_evidence_ids_differing_only_by_case_or_padding_are_distinct():
 
 @pytest.mark.parametrize("kind", ["actual", "forecast", "unknown"])
 @pytest.mark.parametrize("index", [0, 1])
-def test_evidence_kind_allowed_values_accepted(index, kind):
-    assert_one_change_accepted(("evidence", index, "kind"), kind)
+def test_evidence_kind_allowed_values_accepted(planted, index, kind):
+    assert_one_change_accepted(planted, ("evidence", index, "kind"), kind)
 
 
 @pytest.mark.parametrize(
@@ -685,8 +691,8 @@ def test_evidence_kind_allowed_values_accepted(index, kind):
     ],
 )
 @pytest.mark.parametrize("index", [0, 1])
-def test_evidence_kind_other_values_rejected(index, value):
-    assert_one_change_rejected(("evidence", index, "kind"), value)
+def test_evidence_kind_other_values_rejected(planted, index, value):
+    assert_one_change_rejected(planted, ("evidence", index, "kind"), value)
 
 
 @pytest.mark.parametrize(
@@ -704,20 +710,20 @@ def test_evidence_kind_other_values_rejected(index, value):
     ],
 )
 @pytest.mark.parametrize("index", [0, 1])
-def test_evidence_tenant_outside_allowlist_rejects_whole_input(index, value):
-    assert_one_change_rejected(("evidence", index, "tenant"), value)
+def test_evidence_tenant_outside_allowlist_rejects_whole_input(planted, index, value):
+    assert_one_change_rejected(planted, ("evidence", index, "tenant"), value)
 
 
-def test_one_foreign_tenant_among_twenty_rejects_whole_input():
-    payload = planted_payload()
-    payload["evidence"] = evidence_of(20)
+def test_one_foreign_tenant_among_twenty_rejects_whole_input(planted):
+    payload = planted
+    payload["evidence"] = evidence_of(planted, 20)
     assert validate(encode(payload)) == payload
     payload["evidence"][19]["tenant"] = "other-tenant"
     assert_rejected(encode(payload))
 
 
-def test_tenant_check_reads_module_constant(monkeypatch):
-    payload = planted_payload()
+def test_tenant_check_reads_module_constant(planted, monkeypatch):
+    payload = planted
     payload["evidence"][0]["tenant"] = "other-tenant"
     payload["evidence"][1]["tenant"] = "other-tenant"
     assert_rejected(encode(payload))
@@ -728,15 +734,35 @@ def test_tenant_check_reads_module_constant(monkeypatch):
 # --------------------------------------------------------------------------- error hygiene
 
 
-def test_internal_failure_is_reported_as_invalid_input_without_chaining(monkeypatch, valid_payload):
+INTERNAL_ERRORS = [RuntimeError, TypeError, AttributeError, KeyError, ZeroDivisionError, MemoryError]
+INTERNAL_ERROR_IDS = [cls.__name__ for cls in INTERNAL_ERRORS]
+
+
+@pytest.mark.parametrize("error_type", INTERNAL_ERRORS, ids=INTERNAL_ERROR_IDS)
+def test_internal_failure_while_parsing_is_not_reported_as_invalid_input(monkeypatch, valid_payload, error_type):
     def boom(*_args, **_kwargs):
-        raise RuntimeError(SENTINEL)
+        raise error_type(SENTINEL)
 
     monkeypatch.setattr(validation.json, "loads", boom)
-    with pytest.raises(ValidationError) as info:
+    with pytest.raises(error_type) as info:
         validate(encode(valid_payload))
-    exc = info.value
-    assert str(exc) == "invalid_input"
-    assert SENTINEL not in repr(exc)
-    assert exc.__cause__ is None
-    assert exc.__context__ is None
+    assert not isinstance(info.value, ValidationError)
+
+
+@pytest.mark.parametrize("error_type", INTERNAL_ERRORS, ids=INTERNAL_ERROR_IDS)
+def test_internal_failure_while_checking_is_not_reported_as_invalid_input(monkeypatch, valid_payload, error_type):
+    def boom(*_args, **_kwargs):
+        raise error_type(SENTINEL)
+
+    monkeypatch.setattr(validation, "_check_decision", boom)
+    with pytest.raises(error_type) as info:
+        validate(encode(valid_payload))
+    assert not isinstance(info.value, ValidationError)
+
+
+def test_input_errors_map_to_invalid_input_with_code(valid_payload):
+    # ValueError family (JSONDecodeError, UnicodeDecodeError, bad calendar day) and RecursionError.
+    for raw in (b"{", bytes([0xFF]), encode({**valid_payload, "version": 2}), b"[" * 60000):
+        with pytest.raises(ValidationError) as info:
+            validate(raw)
+        assert info.value.code == "invalid_input"

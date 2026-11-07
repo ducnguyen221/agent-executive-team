@@ -83,8 +83,8 @@ def _text(value, allow_empty=False):
     _require(isinstance(value, str))
     if allow_empty and value == "":
         return
-    _require(1 <= len(value) <= MAX_TEXT)
-    _require(value.strip() != "")
+    _require(len(value) <= MAX_TEXT)
+    _require(value.strip() != "")  # also rejects "" (minimum length 1)
 
 
 def _date(value):
@@ -135,12 +135,18 @@ def _check(payload):
     _check_evidence(payload["evidence"])
 
 
-def validate(data):
-    """Return the parsed payload dict if ``data`` (bytes) meets the contract, else raise."""
+def validate(data: bytes) -> dict:
+    """Return the parsed payload dict if ``data`` meets the contract, else raise ValidationError.
+
+    Only input-caused failures map to ``invalid_input``: our own ``_Invalid``, ``ValueError``
+    (JSONDecodeError, UnicodeDecodeError, int-digit limit, impossible calendar day) and
+    ``RecursionError`` (deep nesting). Anything else is a bug and propagates unchanged, so the
+    caller can report it as an internal error. Hence every type check below is explicit.
+    """
     try:
         payload = _parse(data)
         _check(payload)
-    except Exception:  # noqa: BLE001 - every failure, incl. RecursionError, maps to one code
+    except (_Invalid, ValueError, RecursionError):
         payload = None
     if payload is None:
         # Raised outside the handler so no original exception (and its payload) is chained.
