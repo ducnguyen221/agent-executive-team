@@ -34,7 +34,8 @@ class _BadArguments(Exception):
 
 
 def _parse_format(argv):
-    """Return ``"json"`` or ``"text"``; accepts only ``[]``, ``--format json``, ``--format text``."""
+    """Return ``"json"`` or ``"text"``; accepts only no arguments, ``--format json``, ``--format text``."""
+    argv = list(argv)
     if argv == []:
         return "json"
     if len(argv) == 2 and argv[0] == "--format" and argv[1] in ("json", "text"):

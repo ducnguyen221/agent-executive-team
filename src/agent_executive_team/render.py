@@ -2,14 +2,23 @@ r"""Plain-text memo for human readers: pure, deterministic, no I/O.
 
 Every input string goes through ``quote``: it sits inside ``"..."`` after a constant label,
 with ``\`` and ``"`` backslash-escaped and every control, format, line/paragraph separator,
-unassigned, surrogate, non-ASCII space or filler code point written as ``\uXXXX``.
+unassigned, surrogate, non-ASCII space, default-ignorable (invisible) or braille-blank
+code point written as ``\uXXXX``.
 The frame (headings, labels, tags) is constant, so input text cannot forge it.
 """
 
 import unicodedata
 
 ESCAPED_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp", "Cs", "Cn"})
-FILLERS = frozenset({"ᅟ", "ᅠ", "ㅤ", "ﾠ"})
+# Default_Ignorable_Code_Point (Unicode 15.1, DerivedCoreProperties) plus U+2800 (braille blank):
+# characters that render as nothing and could hide text from a human reader.
+INVISIBLE_RANGES = (
+    (0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160),
+    (0x17B4, 0x17B5), (0x180B, 0x180F), (0x200B, 0x200F), (0x202A, 0x202E),
+    (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF), (0x2800, 0x2800),
+)
 KIND_LABELS = {
     "actual": "thực tế (actual)",
     "forecast": "dự báo (forecast)",
@@ -35,11 +44,12 @@ _NO_EVIDENCE_WARNING = "- [KHÔNG CÓ BẰNG CHỨNG] không có bằng chứng 
 
 
 def _needs_escape(char):
+    code = ord(char)
     category = unicodedata.category(char)
     return (
         category in ESCAPED_CATEGORIES
         or (category == "Zs" and char != " ")
-        or char in FILLERS
+        or any(low <= code <= high for low, high in INVISIBLE_RANGES)
     )
 
 

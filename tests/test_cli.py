@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -550,22 +551,29 @@ def _run_with_none_stream(name, data):
     )
 
 
+# (stream set to None, payload valid) -> (exit code, stderr)
+_CLOSED_STREAM_CASES = {
+    ("stdin", True): (1, INTERNAL_STDERR),
+    ("stdin", False): (1, INTERNAL_STDERR),
+    ("stdout", True): (1, INTERNAL_STDERR),
+    ("stdout", False): (2, INVALID_STDERR),
+    ("stderr", True): (0, b""),
+    ("stderr", False): (2, b""),
+}
+
+
 @pytest.mark.parametrize("name", ["stdin", "stdout", "stderr"])
 @pytest.mark.parametrize("valid", [True, False])
 def test_closed_std_stream_no_traceback(name, valid):
     data = FIXTURE.read_bytes() if valid else b"not json"
+    code, err = _CLOSED_STREAM_CASES[(name, valid)]
     result = _run_with_none_stream(name, data)
-    if name == "stdin":
-        expected = 1
-    elif name == "stdout":
-        expected = 1 if valid else 2
+    assert result.returncode == code
+    assert result.stderr == err
+    if name == "stderr" and valid:
+        assert result.stdout.startswith(b"{")
     else:
-        expected = 0 if valid else 2
-    if name == "stdout" and valid:
-        expected = 1
-    assert result.returncode == expected
-    assert result.stderr in _STATIC_STDERR
-    assert b"Traceback" not in result.stderr
+        assert result.stdout == b""
 
 
 def test_all_three_streams_none_exit_one_silently():
@@ -581,23 +589,33 @@ def test_all_three_streams_none_exit_one_silently():
     assert result.stderr == b"" and result.stdout == b""
 
 
+# (redirection, payload valid) -> exit code
+_POSIX_CASES = {
+    ("<&-", True): 1,
+    ("<&-", False): 1,
+    (">&-", True): 1,
+    (">&-", False): 2,
+    ("2>&-", True): 0,
+    ("2>&-", False): 2,
+}
+
+
 @pytest.mark.skipif(os.name == "nt", reason="POSIX shell descriptor closing")
 @pytest.mark.parametrize("redir", ["<&-", ">&-", "2>&-"])
 @pytest.mark.parametrize("valid", [True, False])
 def test_posix_shell_closed_descriptor_no_traceback(redir, valid):
     env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
-    source = str(FIXTURE) if valid else "/dev/null"
+    source = shlex.quote(str(FIXTURE)) if valid else "/dev/null"
+    python = shlex.quote(sys.executable)
     if redir == "<&-":
-        cmd = f'"{sys.executable}" -B -m agent_executive_team <&- 2>&1'
+        cmd = f"{python} -B -m agent_executive_team <&- 2>&1"
     elif redir == ">&-":
-        cmd = f'"{sys.executable}" -B -m agent_executive_team < {source} 2>&1 >&-'
+        cmd = f"{python} -B -m agent_executive_team < {source} 2>&1 >&-"
     else:
-        cmd = f'"{sys.executable}" -B -m agent_executive_team < {source} 2>&- >/dev/null'
+        cmd = f"{python} -B -m agent_executive_team < {source} 2>&- >/dev/null"
     result = subprocess.run(["/bin/sh", "-c", cmd], capture_output=True, cwd=ROOT, env=env, check=False)
     assert b"Traceback" not in result.stdout + result.stderr
-    assert result.returncode in (0, 1, 2)
-    if redir == "2>&-" and valid:
-        assert result.returncode == 0
+    assert result.returncode == _POSIX_CASES[(redir, valid)]
 
 
 def test_discard_leaves_foreign_descriptor():
@@ -624,6 +642,12 @@ def test_discard_leaves_foreign_descriptor():
 
 def test_standard_fds_constant():
     assert cli._STANDARD_FDS == (1, 2)
+
+
+def test_empty_tuple_argv_is_json():
+    stdout = io.BytesIO()
+    assert cli.main(io.BytesIO(FIXTURE.read_bytes()), stdout, io.BytesIO(), argv=()) == 0
+    assert stdout.getvalue().startswith(b"{")
 
 
 def test_main_without_argv_ignores_sys_argv(monkeypatch):

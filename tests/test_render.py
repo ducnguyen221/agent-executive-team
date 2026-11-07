@@ -18,11 +18,19 @@ QUOTED = re.compile(r'"(?:\\.|[^"\\])*"')
 
 # Hand-written, independent of render.py: what quote() must escape.
 ESCAPED_GROUPS = {"Cc", "Cf", "Zl", "Zp", "Cs", "Cn"}
-FILLER_CODEPOINTS = {0x115F, 0x1160, 0x3164, 0xFFA0}
+# Default_Ignorable_Code_Point (Unicode 15.1) plus U+2800, hand-written and independent of render.py.
+INVISIBLE_RANGES = (
+    (0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160),
+    (0x17B4, 0x17B5), (0x180B, 0x180F), (0x200B, 0x200F), (0x202A, 0x202E),
+    (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF), (0x2800, 0x2800),
+)  # fmt: skip
 
 SC2_CHARACTERS = [
-    "\n", "\r", "\t", "\x1b", "\x7f", "\x85", "\x9b", "\xa0", "​", "‎",
-    "‮", "⁦", " ", " ", "ㅤ", "﻿", "￾",
+    "\n", "\r", "\t", "\x1b", "\x7f", "\x85", "\x9b", "\xa0", "\u200b", "\u200e",
+    "\u202e", "\u2066", "\u2028", "\u2029", "\u3164", "\ufeff", "\ufffe",
+    "\u034f", "\ufe0f", "\U000e0100", "\u2800",
 ]  # fmt: skip
 
 TEXT_FIELDS = (
@@ -46,7 +54,7 @@ def expected_quote(char):
     if (
         category in ESCAPED_GROUPS
         or (category == "Zs" and code != 0x20)
-        or code in FILLER_CODEPOINTS
+        or any(low <= code <= high for low, high in INVISIBLE_RANGES)
     ):
         escaped = "\\u%04x" % code if code <= 0xFFFF else "\\U%08x" % code
         return '"' + escaped + '"'
@@ -72,6 +80,13 @@ def test_quote_full_codepoint_sweep():
         assert render.quote(char) == expected_quote(char), hex(code)
 
 
+@pytest.mark.parametrize("code", [0x034F, 0x17B4, 0x180B, 0xFE0F, 0xE0100, 0x2800, 0x3164, 0x115F])
+def test_default_ignorable_and_braille_blank_escaped(code):
+    expected = "\\u%04x" % code if code <= 0xFFFF else "\\U%08x" % code
+
+    assert render.quote(chr(code)) == '"' + expected + '"'
+
+
 def test_quote_wraps_and_keeps_plain_text():
     assert render.quote("") == '""'
     assert render.quote("a b") == '"a b"'
@@ -79,7 +94,8 @@ def test_quote_wraps_and_keeps_plain_text():
 
 def test_constants():
     assert render.ESCAPED_CATEGORIES == frozenset(ESCAPED_GROUPS)
-    assert render.FILLERS == frozenset(chr(code) for code in FILLER_CODEPOINTS)
+    assert render.INVISIBLE_RANGES == INVISIBLE_RANGES
+    assert not hasattr(render, "FILLERS")
     assert render.KIND_LABELS == {
         "actual": "thực tế (actual)",
         "forecast": "dự báo (forecast)",
@@ -101,16 +117,17 @@ def test_sc2_characters_in_every_field(character, section, index, key):
     raw = character.encode("utf-8")
     assert out.count(raw) == baseline.count(raw)
     code = ord(character)
-    assert ("\\u%04x" % code).encode() in out
+    escaped = ("\\u%04x" % code) if code <= 0xFFFF else ("\\U%08x" % code)
+    assert escaped.encode() in out
 
 
 def test_vietnamese_and_private_use_kept():
     payload = build_valid_payload()
-    payload["decision"]["question"] = "Có nên áp dụng  nhịp mới không?"
+    payload["decision"]["question"] = "Có nên áp dụng \ue000 nhịp mới không?"
 
     out = render.render_text(memo_of(payload)).decode("utf-8")
 
-    assert '"Có nên áp dụng  nhịp mới không?"' in out
+    assert '"Có nên áp dụng \ue000 nhịp mới không?"' in out
 
 
 ADVERSARIAL = (
